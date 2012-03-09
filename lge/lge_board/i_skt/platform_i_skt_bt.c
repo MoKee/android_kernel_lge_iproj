@@ -117,9 +117,15 @@ static int configure_pcm_gpios(int on)
 			msm_gpiomux_put(pcm_gpios[i]);
 	return ret;
 } 
+
+static int bt_status = 0;
+
 static int i_skt_bluetooth_power(int on)
 {
   int ret, pin;
+
+       if (on == bt_status)
+               return 0;
 
   printk(KERN_ERR"[LG_BTUI] %s power : %d ", __func__, on);
 
@@ -179,6 +185,7 @@ static int i_skt_bluetooth_power(int on)
             }
         }
     }
+  bt_status = on;
   return 0;
 }
 
