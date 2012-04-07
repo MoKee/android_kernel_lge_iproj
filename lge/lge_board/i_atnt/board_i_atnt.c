@@ -3683,7 +3683,7 @@ static struct pm8xxx_pwrkey_platform_data pm8058_pwrkey_pdata = {
 	.pull_up		= 1,
 	.kpd_trigger_delay_us   = 15625,
 	.wakeup			= 1,
-	.pwrkey_time_ms		= 500,
+	.pwrkey_time_ms		= 0,
 };
 
 #if defined(CONFIG_PMIC8058_OTHC) || defined(CONFIG_PMIC8058_OTHC_MODULE)
