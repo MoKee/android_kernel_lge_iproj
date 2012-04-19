@@ -119,9 +119,8 @@ static u32 ddl_channel_set_callback(struct ddl_context *ddl_context,
 			ddl->client_state = DDL_CLIENT_WAIT_FOR_INITCODEC;
 			ddl->instance_id = instance_id;
 			if (ddl->decoding) {
-				if (vidc_msg_timing)
-					ddl_calc_core_proc_time(__func__,
-						DEC_OP_TIME);
+				ddl_calc_core_proc_time(__func__,
+						DEC_OP_TIME, ddl);
 				if (ddl->codec_data.decoder.header_in_start)
 					ddl_vidc_decode_init_codec(ddl);
 				else {
@@ -153,8 +152,7 @@ static u32 ddl_encoder_seq_done_callback(struct ddl_context *ddl_context,
 		ddl_client_fatal_cb(ddl);
 		return true;
 	}
-	if (vidc_msg_timing)
-		ddl_calc_core_proc_time(__func__, ENC_OP_TIME);
+	ddl_calc_core_proc_time(__func__, ENC_OP_TIME, ddl);
 	ddl->cmd_state = DDL_CMD_INVALID;
 	DDL_MSG_LOW("ddl_state_transition: %s ~~> DDL_CLIENT_WAIT_FOR_FRAME",
 	ddl_get_state_string(ddl->client_state));
@@ -254,8 +252,7 @@ static u32 ddl_decoder_seq_done_callback(struct ddl_context *ddl_context,
 		DDL_MSG_ERROR("STATE-CRITICAL-HDDONE");
 		ddl_client_fatal_cb(ddl);
 	} else {
-		if (vidc_msg_timing)
-			ddl_calc_core_proc_time(__func__, DEC_OP_TIME);
+		ddl_calc_core_proc_time(__func__, DEC_OP_TIME, ddl);
 		ddl->cmd_state = DDL_CMD_INVALID;
 		DDL_MSG_LOW("ddl_state_transition: %s ~~>"
 			"DDL_CLIENT_WAIT_FOR_DPB",
@@ -264,6 +261,10 @@ static u32 ddl_decoder_seq_done_callback(struct ddl_context *ddl_context,
 		DDL_MSG_LOW("HEADER_DONE");
 		vidc_1080p_get_decode_seq_start_result(&seq_hdr_info);
 		parse_hdr_size_data(ddl, &seq_hdr_info);
+		decoder->mp2_datadump_status = 0;
+		vidc_sm_get_mp2datadump_status(&ddl->shared_mem
+			[ddl->command_channel],
+			&decoder->mp2_datadump_status);
 		if (res_trk_get_disable_fullhd() &&
 			(seq_hdr_info.img_size_x * seq_hdr_info.img_size_y >
 				1280 * 720)) {
@@ -475,10 +476,8 @@ static u32 ddl_dpb_buffers_set_done_callback(
 			DDL_MSG_LOW("ddl_state_transition: %s ~~>"
 				"DDL_CLIENT_WAIT_FOR_FRAME",
 				ddl_get_state_string(ddl->client_state));
-			if (vidc_msg_timing) {
-				ddl_calc_core_proc_time(__func__, DEC_OP_TIME);
-				ddl_reset_core_time_variables(DEC_OP_TIME);
-			}
+			ddl_calc_core_proc_time(__func__, DEC_OP_TIME, ddl);
+			ddl_reset_core_time_variables(DEC_OP_TIME);
 			ddl->client_state = DDL_CLIENT_WAIT_FOR_FRAME;
 			ddl_vidc_decode_frame_run(ddl);
 			ret_status = false;
@@ -503,8 +502,7 @@ static void ddl_encoder_frame_run_callback(
 		DDL_MSG_ERROR("STATE-CRITICAL-ENCFRMRUN");
 		ddl_client_fatal_cb(ddl);
 	} else {
-		if (vidc_msg_timing)
-			ddl_calc_core_proc_time(__func__, ENC_OP_TIME);
+		ddl_calc_core_proc_time(__func__, ENC_OP_TIME, ddl);
 		DDL_MSG_LOW("ENC_FRM_RUN_DONE");
 		ddl->cmd_state = DDL_CMD_INVALID;
 		vidc_1080p_get_encode_frame_info(&encoder->enc_frame_info);
@@ -1088,8 +1086,7 @@ static void ddl_decoder_input_done_callback(
 	input_vcd_frm->offset += dec_disp_info->input_bytes_consumed;
 	input_vcd_frm->data_len -= dec_disp_info->input_bytes_consumed;
 	ddl->input_frame.frm_trans_end = frame_transact_end;
-	if (vidc_msg_timing)
-		ddl_calc_core_proc_time(__func__, DEC_IP_TIME);
+	ddl_calc_core_proc_time(__func__, DEC_IP_TIME, ddl);
 	ddl_context->ddl_callback(VCD_EVT_RESP_INPUT_DONE, VCD_S_SUCCESS,
 		&ddl->input_frame, sizeof(struct ddl_frame_data_tag),
 		(u32 *)ddl, ddl->client_data);
@@ -1207,6 +1204,10 @@ static u32 ddl_decoder_output_done_callback(
 		vidc_sm_get_metadata_status(&ddl->shared_mem
 			[ddl->command_channel],
 			&decoder->meta_data_exists);
+		decoder->mp2_datadump_status = 0;
+		vidc_sm_get_mp2datadump_status(&ddl->shared_mem
+			[ddl->command_channel],
+			&decoder->mp2_datadump_status);
 		if (decoder->output_order == VCD_DEC_ORDER_DISPLAY) {
 			vidc_sm_get_frame_tags(&ddl->shared_mem
 				[ddl->command_channel],
@@ -1296,8 +1297,7 @@ static u32 ddl_decoder_output_done_callback(
 		}
 		output_vcd_frm->flags |= VCD_FRAME_FLAG_ENDOFFRAME;
 		output_frame->frm_trans_end = frame_transact_end;
-		if (vidc_msg_timing)
-			ddl_calc_core_proc_time(__func__, DEC_OP_TIME);
+		ddl_calc_core_proc_time(__func__, DEC_OP_TIME, ddl);
 		ddl_process_decoder_metadata(ddl);
 		vidc_sm_get_aspect_ratio_info(
 			&ddl->shared_mem[ddl->command_channel],
