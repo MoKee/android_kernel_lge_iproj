@@ -1339,18 +1339,15 @@ static int msm_rotator_start(unsigned long arg,
 		info.session_id = (unsigned int)
 			msm_rotator_dev->img_info[first_free_index];
 		*(msm_rotator_dev->img_info[first_free_index]) = info;
-        /* QCT patch start for HDMI rotation of portrait video */
-//		msm_rotator_dev->pid_list[first_free_index] = pid;
-		msm_rotator_dev->fd_info[first_free_index] = fd_info;
-		/* QCT patch end for HDMI rotation of portrait video */
-
-		if (copy_to_user((void __user *)arg, &info, sizeof(info)))
-			rc = -EFAULT;
+		msm_rotator_dev->pid_list[first_free_index] = pid;
 	} else if (s == MAX_SESSIONS) {
 		dev_dbg(msm_rotator_dev->device, "%s: all sessions in use\n",
 			__func__);
 		rc = -EBUSY;
 	}
+
+	if (rc == 0 && copy_to_user((void __user *)arg, &info, sizeof(info)))
+		rc = -EFAULT;
 
 rotator_start_exit:
 	mutex_unlock(&msm_rotator_dev->rotator_lock);
