@@ -1205,7 +1205,7 @@ static int ipx_proto(const struct sk_buff *skb,
 
 	switch (par->family) {
 	case NFPROTO_IPV6:
-		tproto = -1;//ipv6_find_hdr(skb, &thoff, -1, NULL);
+		tproto = ipv6_find_hdr(skb, &thoff, -1, NULL);
 		if (tproto < 0)
 			MT_DEBUG("%s(): transport header not found in ipv6"
 				 " skb=%p\n", __func__, skb);
@@ -1696,27 +1696,6 @@ static struct sock *qtaguid_find_sk(const struct sk_buff *skb,
 		}
 	}
 	return sk;
-}
-
-static int ipx_proto(const struct sk_buff *skb,
-		     struct xt_action_param *par)
-{
-	int thoff, tproto;
-
-	switch (par->family) {
-	case NFPROTO_IPV6:
-		tproto = ipv6_find_hdr(skb, &thoff, -1, NULL);
-		if (tproto < 0)
-			MT_DEBUG("%s(): transport header not found in ipv6"
-				 " skb=%p\n", __func__, skb);
-		break;
-	case NFPROTO_IPV4:
-		tproto = ip_hdr(skb)->protocol;
-		break;
-	default:
-		tproto = IPPROTO_RAW;
-	}
-	return tproto;
 }
 
 static void account_for_uid(const struct sk_buff *skb,
