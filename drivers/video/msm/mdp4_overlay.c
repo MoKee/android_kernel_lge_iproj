@@ -2093,7 +2093,7 @@ void mdp4_overlay_pipe_free(struct mdp4_overlay_pipe *pipe)
 	iom_pipe_info = &mdp_iommu[pipe->mixer_num][pipe->pipe_ndx - 1];
 	iom_pipe_info->mark_unmap = 1;
 
-	mdp4_overlay_iommu_pipe_free(pipe->pipe_ndx, 0);
+	mdp4_overlay_iommu_pipe_free(pipe->pipe_ndx, 1);
 
 	memset(pipe, 0, sizeof(*pipe));
 
