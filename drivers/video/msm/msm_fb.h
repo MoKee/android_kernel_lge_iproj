@@ -214,4 +214,13 @@ void unfill_black_screen(void);
 int msm_fb_check_frame_rate(struct msm_fb_data_type *mfd,
 				struct fb_info *info);
 
+#ifdef CONFIG_FB_MSM_LOGO
+#ifdef CONFIG_LGE_I_DISP_BOOTLOGO
+#define INIT_IMAGE_FILE "/bootimages/boot_logo_00000.rle"
+#else
+#define INIT_IMAGE_FILE "/initlogo.rle"
+#endif
+int load_565rle_image(char *filename, bool bf_supported);
+#endif
+
 #endif /* MSM_FB_H */
