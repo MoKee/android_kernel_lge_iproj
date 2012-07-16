@@ -591,6 +591,7 @@ void* LGF_TestModeBattLevel(test_mode_req_type * pReq, DIAG_TEST_MODE_F_rsp_type
     return pRsp;
 }
 
+#ifdef CONFIG_LGE_DIAG_KEYPRESS
 void* LGF_TestModeKeyData(test_mode_req_type * pReq, DIAG_TEST_MODE_F_rsp_type * pRsp)
 {
 
@@ -600,7 +601,9 @@ void* LGF_TestModeKeyData(test_mode_req_type * pReq, DIAG_TEST_MODE_F_rsp_type *
 
     return pRsp;
 }
+#endif
 
+#if 0
 extern struct device *get_atcmd_dev(void);
 
 void* LGF_TestModeSleepMode(test_mode_req_type * pReq, DIAG_TEST_MODE_F_rsp_type * pRsp)
@@ -635,6 +638,7 @@ void* LGF_TestModeSleepMode(test_mode_req_type * pReq, DIAG_TEST_MODE_F_rsp_type
 
     return pRsp;
 }
+#endif
 
 void* LGF_TestModeVirtualSimTest(test_mode_req_type * pReq, DIAG_TEST_MODE_F_rsp_type * pRsp)
 {
@@ -1662,10 +1666,14 @@ testmode_user_table_entry_type testmode_mstr_tbl[TESTMODE_MSTR_TBL_SIZE] =
     {TEST_MODE_WIFI_TEST,                   not_supported_command_handler,    ARM11_PROCESSOR},
     {TEST_MODE_MANUAL_TEST_MODE,            NULL,                             ARM9_PROCESSOR},
     {TEST_MODE_FORMAT_MEMORY_TEST,          not_supported_command_handler,    ARM11_PROCESSOR},
+#ifdef CONFIG_LGE_DIAG_KEYPRESS
     {TEST_MODE_KEY_DATA_TEST,               LGF_TestModeKeyData,              ARM11_PROCESSOR},
+#else
+    {TEST_MODE_KEY_DATA_TEST,               NULL,              ARM11_PROCESSOR},
+#endif
     /* 41 ~ 50 */
     {TEST_MODE_MEMORY_CAPA_TEST,            not_supported_command_handler,    ARM11_PROCESSOR},
-    {TEST_MODE_SLEEP_MODE_TEST,             LGF_TestModeSleepMode,            ARM11_PROCESSOR},
+    {TEST_MODE_SLEEP_MODE_TEST,             NULL/*LGF_TestModeSleepMode*/,            ARM11_PROCESSOR},
     {TEST_MODE_SPEAKER_PHONE_TEST,          not_supported_command_handler,    ARM11_PROCESSOR},
     {TEST_MODE_VIRTUAL_SIM_TEST,            LGF_TestModeVirtualSimTest,       ARM11_PROCESSOR},
     {TEST_MODE_PHOTO_SENSER_TEST,           not_supported_command_handler,    ARM11_PROCESSOR},

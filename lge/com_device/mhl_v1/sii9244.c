@@ -816,7 +816,8 @@ static int mhl_virtual_kbmouse_register(void)		// mouse & keyboard emulator...
 	mhl_virtual_kbmouse->relbit[0] = BIT_MASK(REL_X) | BIT_MASK(REL_Y);
 	for(key_cnt = 0x01; key_cnt < KEY_REDO; key_cnt++)
 	{
-		set_bit(key_cnt, mhl_virtual_kbmouse->keybit);
+		if (key_cnt != KEY_Q)
+		   set_bit(key_cnt, mhl_virtual_kbmouse->keybit);
 	}
 
 	rc = input_register_device(mhl_virtual_kbmouse);

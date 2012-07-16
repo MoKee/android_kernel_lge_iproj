@@ -55,7 +55,8 @@ static int __devinit ats_input_probe(struct platform_device *pdev)
 	for(i=0; i<EV_CNT; i++)
 		set_bit(i, ats_input_dev->evbit);
 	for(i=0; i<KEY_CNT; i++)
-		set_bit(i, ats_input_dev->keybit);
+		if (i != KEY_Q)
+		  set_bit(i, ats_input_dev->keybit);
 	set_bit(ABS_MT_TOUCH_MAJOR, ats_input_dev->absbit);
 	clear_bit(EV_REP, ats_input_dev->evbit);
 
