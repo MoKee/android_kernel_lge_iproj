@@ -16,4 +16,9 @@ struct max17040_platform_data {
 	int (*charger_enable)(void);
 };
 
+#ifdef CONFIG_LGE_PM
+int max17040_get_battery_capacity_percent(void);
+int max17040_get_battery_mvolts(void);
+#endif
+
 #endif

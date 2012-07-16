@@ -686,13 +686,25 @@ static uint32_t audio_mvs_get_network_type(uint32_t mvs_mode)
 	case MVS_MODE_PCM:
 	case MVS_MODE_G729A:
 	case MVS_MODE_G711A:
+// MVS Loopback Porting [Start]
+#if 0
 		network_type = VSS_NETWORK_ID_VOIP_NB;
+#else
+		network_type = VSS_NETWORK_ID_GSM_NB;
+#endif
+// MVS Loopback Porting [End]
 		break;
 
 	case MVS_MODE_4GV_WB:
 	case MVS_MODE_AMR_WB:
 	case MVS_MODE_PCM_WB:
+// MVS Loopback Porting [Start]
+#if 0
 		network_type = VSS_NETWORK_ID_VOIP_WB;
+#else
+		network_type = VSS_NETWORK_ID_GSM_NB;
+#endif
+// MVS Loopback Porting [End]
 		break;
 
 	default:
@@ -742,7 +754,7 @@ static int audio_mvs_stop(struct audio_mvs_info_type *audio)
 
 	pr_info("%s\n", __func__);
 
-	voice_set_voc_path_full(0);
+	rc = voice_set_voc_path_full(0);
 
 	audio->state = AUDIO_MVS_STOPPED;
 
@@ -809,6 +821,7 @@ static int audio_mvs_release(struct inode *inode, struct file *file)
 	struct list_head *next = NULL;
 	struct audio_mvs_buf_node *buf_node = NULL;
 	struct audio_mvs_info_type *audio = file->private_data;
+	unsigned long dsp_flags;
 
 	pr_info("%s\n", __func__);
 
@@ -818,7 +831,8 @@ static int audio_mvs_release(struct inode *inode, struct file *file)
 		audio_mvs_stop(audio);
 
 	/* Free input and output memory. */
-	mutex_lock(&audio->in_lock);
+	spin_lock_irqsave(&audio->dsp_lock, dsp_flags);
+	//mutex_lock(&audio->in_lock);
 
 	list_for_each_safe(ptr, next, &audio->in_queue) {
 		buf_node = list_entry(ptr, struct audio_mvs_buf_node, list);
@@ -830,10 +844,9 @@ static int audio_mvs_release(struct inode *inode, struct file *file)
 		list_del(&buf_node->list);
 	}
 
-	mutex_unlock(&audio->in_lock);
+	//mutex_unlock(&audio->in_lock);
 
-
-	mutex_lock(&audio->out_lock);
+	//mutex_lock(&audio->out_lock);
 
 	list_for_each_safe(ptr, next, &audio->out_queue) {
 		buf_node = list_entry(ptr, struct audio_mvs_buf_node, list);
@@ -845,7 +858,8 @@ static int audio_mvs_release(struct inode *inode, struct file *file)
 		list_del(&buf_node->list);
 	}
 
-	mutex_unlock(&audio->out_lock);
+	//mutex_unlock(&audio->out_lock);
+	spin_unlock_irqrestore(&audio->dsp_lock, dsp_flags);
 
 	kfree(audio->memory_chunk);
 	audio->memory_chunk = NULL;
@@ -865,6 +879,7 @@ static ssize_t audio_mvs_read(struct file *file,
 	int rc = 0;
 	struct audio_mvs_buf_node *buf_node = NULL;
 	struct audio_mvs_info_type *audio = file->private_data;
+	unsigned long dsp_flags;
 
 	pr_debug("%s:\n", __func__);
 
@@ -874,7 +889,8 @@ static ssize_t audio_mvs_read(struct file *file,
 					     1 * HZ);
 
 	if (rc > 0) {
-		mutex_lock(&audio->out_lock);
+		//mutex_lock(&audio->out_lock);
+		spin_lock_irqsave(&audio->dsp_lock, dsp_flags);
 
 		if ((audio->state == AUDIO_MVS_STARTED) &&
 		    (!list_empty(&audio->out_queue))) {
@@ -916,7 +932,8 @@ static ssize_t audio_mvs_read(struct file *file,
 			rc = -EPERM;
 		}
 
-		mutex_unlock(&audio->out_lock);
+		//mutex_unlock(&audio->out_lock);
+		spin_unlock_irqrestore(&audio->dsp_lock, dsp_flags);
 
 	} else if (rc == 0) {
 		pr_err("%s: No UL data available\n", __func__);
@@ -939,14 +956,17 @@ static ssize_t audio_mvs_write(struct file *file,
 	int rc = 0;
 	struct audio_mvs_buf_node *buf_node = NULL;
 	struct audio_mvs_info_type *audio = file->private_data;
+	unsigned long dsp_flags;
 
 	pr_debug("%s:\n", __func__);
 
 	rc = wait_event_interruptible_timeout(audio->in_wait,
 		(!list_empty(&audio->free_in_queue) ||
 		audio->state == AUDIO_MVS_STOPPED), 1 * HZ);
+	
 	if (rc > 0) {
-		mutex_lock(&audio->in_lock);
+		//mutex_lock(&audio->in_lock);
+		spin_lock_irqsave(&audio->dsp_lock, dsp_flags);
 
 		if (audio->state == AUDIO_MVS_STARTED) {
 			if (count <= sizeof(struct q6_msm_audio_mvs_frame)) {
@@ -978,8 +998,8 @@ static ssize_t audio_mvs_write(struct file *file,
 
 			rc = -EPERM;
 		}
-
-		mutex_unlock(&audio->in_lock);
+		//mutex_unlock(&audio->in_lock);
+		spin_unlock_irqrestore(&audio->dsp_lock, dsp_flags);
 	} else if (rc == 0) {
 		pr_err("%s: No free DL buffs\n", __func__);
 

@@ -410,10 +410,24 @@ static int adb_open(struct inode *ip, struct file *fp)
 {
 	printk(KERN_INFO "adb_open\n");
 	if (!_adb_dev)
+#ifdef CONFIG_USB_G_LGE_ANDROID
+    {
+        pr_info("%s: -ENODEV\n", __func__);
+#endif
 		return -ENODEV;
+#ifdef CONFIG_USB_G_LGE_ANDROID
+    }
+#endif
 
 	if (adb_lock(&_adb_dev->open_excl))
+#ifdef CONFIG_USB_G_LGE_ANDROID
+    {
+        pr_info("%s: -EBUSY\n", __func__);
+#endif
 		return -EBUSY;
+#ifdef CONFIG_USB_G_LGE_ANDROID
+    }
+#endif
 
 	fp->private_data = _adb_dev;
 

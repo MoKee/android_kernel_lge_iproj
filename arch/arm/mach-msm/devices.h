@@ -117,6 +117,7 @@ extern struct platform_device msm_gsbi4_qup_i2c_device;
 extern struct platform_device msm_gsbi7_qup_i2c_device;
 extern struct platform_device msm_gsbi8_qup_i2c_device;
 extern struct platform_device msm_gsbi9_qup_i2c_device;
+extern struct platform_device msm_gsbi10_qup_i2c_device;
 extern struct platform_device msm_gsbi12_qup_i2c_device;
 
 extern struct platform_device msm_slim_ctrl;
@@ -154,6 +155,9 @@ extern struct platform_device msm_device_ssbi6;
 extern struct platform_device msm_device_ssbi7;
 
 extern struct platform_device msm_gsbi1_qup_spi_device;
+#if defined(CONFIG_LGE_BROADCAST_TDMB)
+extern struct platform_device msm_gsbi11_qup_spi_device;
+#endif	/* CONFIG_LGE_BROADCAST_TDMB */
 
 extern struct platform_device msm_device_vidc_720p;
 

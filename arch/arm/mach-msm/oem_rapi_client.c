@@ -26,7 +26,15 @@
 #include <mach/msm_rpcrouter.h>
 #include <mach/oem_rapi_client.h>
 
+// mj.cha@lge.com 2011-08-22, changed PROG ID for using RPC between Kernel and MDM
+#if defined (CONFIG_MACH_LGE_I_BOARD_LGU) || defined (CONFIG_MACH_LGE_I_BOARD_VZW)
 #define OEM_RAPI_PROG  0x3000006B
+#elif defined (CONFIG_MACH_LGE_I_BOARD_SKT) || defined (CONFIG_MACH_LGE_I_BOARD_ATNT) || defined (CONFIG_MACH_LGE_I_BOARD_DCM)
+#define OEM_RAPI_PROG  0x3001006B //PROG ID of MDM
+#else
+#define OEM_RAPI_PROG  0x3000006B
+#endif
+
 #define OEM_RAPI_VERS  0x00010001
 
 #define OEM_RAPI_NULL_PROC                        0
@@ -171,6 +179,14 @@ int oem_rapi_client_streaming_function(
 	struct oem_rapi_client_streaming_func_arg *arg,
 	struct oem_rapi_client_streaming_func_ret *ret)
 {
+	/* byongdoo.oh@lge.com error check to prevent from infinite reset */
+	if (IS_ERR(client))
+	{
+		pr_err("%s fail!! and return",__func__);
+		return -1;
+	}
+	/* end byongdoo.oh@lge.com */
+
 	return msm_rpc_client_req2(client,
 				   OEM_RAPI_STREAMING_FUNCTION_PROC,
 				   oem_rapi_client_streaming_function_arg, arg,
@@ -332,6 +348,15 @@ static const struct file_operations debug_ops = {
 	.read = debug_read,
 	.write = debug_write,
 };
+
+/* BEGIN: 0014110 jihoon.lee@lge.com 20110115 */
+/* MOD 0014110: [FACTORY RESET] stability */
+/* sync up with oem_rapi */
+uint32_t get_oem_rapi_open_cnt(void)
+{
+	return open_count;
+}
+EXPORT_SYMBOL(get_oem_rapi_open_cnt);
 
 static void __exit oem_rapi_client_mod_exit(void)
 {

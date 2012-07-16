@@ -75,7 +75,9 @@ struct sidetone_cal {
 			(AUDIO_MAX_ACDB_IOCTL+9), unsigned)
 #define AUDIO_SET_RTAC_CVP_CAL	_IOWR(AUDIO_IOCTL_MAGIC, \
 			(AUDIO_MAX_ACDB_IOCTL+10), unsigned)
-
+/* neo.kang@lge.com it should be removed. just temporal add for fixing compile error */
+#define AUDIO_GET_RTAC_DEV_CTRL_INFO	_IOR(AUDIO_IOCTL_MAGIC, \
+			(AUDIO_MAX_COMMON_IOCTL_NUM+26), unsigned)
 #define	AUDIO_MAX_RTAC_IOCTL	(AUDIO_MAX_ACDB_IOCTL+20)
 
 #endif /* __MSM_AUDIO_ACDB_H */

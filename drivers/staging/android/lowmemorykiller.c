@@ -38,7 +38,7 @@
 #include <linux/memory.h>
 #include <linux/memory_hotplug.h>
 
-static uint32_t lowmem_debug_level = 2;
+static uint32_t lowmem_debug_level = 1;
 static int lowmem_adj[6] = {
 	0,
 	1,
@@ -152,16 +152,25 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 	if (lowmem_minfree_size < array_size)
 		array_size = lowmem_minfree_size;
 	for (i = 0; i < array_size; i++) {
+#ifdef CONFIG_LGE_DEBUG
+		if (other_free < lowmem_minfree[i] &&
+		    other_file < lowmem_minfree[i]*3) {
+		    lowmem_print(6, "lowmem_minfree[i] %d owmem_minfree[i]*3 %d, i %d\n",
+			             lowmem_minfree[i], lowmem_minfree[i]*3, i);        
+			min_adj = lowmem_adj[i];
+			break;
+		}
+#else
 		if (other_free < lowmem_minfree[i] &&
 		    other_file < lowmem_minfree[i]) {
 			min_adj = lowmem_adj[i];
 			break;
 		}
+#endif        
 	}
 	if (sc->nr_to_scan > 0)
-		lowmem_print(3, "lowmem_shrink %lu, %x, ofree %d %d, ma %d\n",
-			     sc->nr_to_scan, sc->gfp_mask, other_free, other_file,
-			     min_adj);
+		lowmem_print(3, "lowmem_shrink %lu, %x, other_free %d other_file %d, min_adj %d\n",
+			     sc->nr_to_scan, sc->gfp_mask, other_free, other_file, min_adj);
 	rem = global_page_state(NR_ACTIVE_ANON) +
 		global_page_state(NR_ACTIVE_FILE) +
 		global_page_state(NR_INACTIVE_ANON) +
@@ -187,6 +196,12 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 			continue;
 		}
 		oom_adj = sig->oom_adj;
+
+#ifdef CONFIG_LGE_DEBUG
+		lowmem_print(5, "PID %d (%s), adj %d\n",
+			     p->pid, p->comm, oom_adj);        
+#endif
+
 		if (oom_adj < min_adj) {
 			task_unlock(p);
 			continue;

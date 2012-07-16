@@ -165,6 +165,7 @@ int mdp4_dsi_video_on(struct platform_device *pdev)
 	}
 
 	if (is_mdp4_hw_reset()) {
+		printk(KERN_INFO "%s: mdp4_hw_init .. \n", __func__);
 		mdp4_hw_init();
 		outpdw(MDP_BASE + 0x0038, mdp4_display_intf);
 	}
@@ -471,7 +472,8 @@ static void mdp4_overlay_dsi_video_dma_busy_wait(struct msm_fb_data_type *mfd)
 	if (need_wait) {
 		/* wait until DMA finishes the current job */
 		pr_debug("%s: pending pid=%d\n", __func__, current->pid);
-		wait_for_completion(&mfd->dma->comp);
+//		wait_for_completion(&mfd->dma->comp);
+		wait_for_completion_timeout(&mfd->dma->comp, msecs_to_jiffies(VSYNC_PERIOD*2));
 	}
 	pr_debug("%s: done pid=%d\n", __func__, current->pid);
 }
@@ -679,8 +681,15 @@ void mdp4_dsi_video_overlay(struct msm_fb_data_type *mfd)
 	pipe = dsi_pipe;
 	pipe->srcp0_addr = (uint32) buf;
 	mdp4_overlay_rgb_setup(pipe);
-	mdp4_mixer_stage_up(pipe);
+#ifndef QCT_HDMI_1080P_PATCH
 	mdp4_overlay_reg_flush(pipe, 0);
+#endif	
+	mdp4_mixer_stage_up(pipe);
+#ifndef QCT_HDMI_1080P_PATCH
+
+#else
+	mdp4_overlay_reg_flush(pipe, 0);
+#endif
 	mdp4_overlay_dsi_video_vsync_push(mfd, pipe);
 	mutex_unlock(&mfd->dma->ov_mutex);
 }

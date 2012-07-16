@@ -43,6 +43,9 @@
 #endif
 #include "mipi_dsi.h"
 
+// lcd black out workaround
+#undef CONFIG_HAS_EARLYSUSPEND
+
 uint32 mdp4_extn_disp;
 
 static struct clk *mdp_clk;

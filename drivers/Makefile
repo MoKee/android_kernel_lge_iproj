@@ -125,3 +125,7 @@ obj-y				+= ieee802154/
 obj-y				+= clk/
 
 obj-$(CONFIG_HWSPINLOCK)	+= hwspinlock/
+# LGE_CHANGE_BROADCAST [inb612@lge.com] 2009.12.01 LGE_Domestic
+obj-$(CONFIG_LGE_BROADCAST_TDMB)	+= broadcast/
+#obj-y	+= broadcast/
+# LGE_CHANGE BROADCAST

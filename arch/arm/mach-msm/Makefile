@@ -160,7 +160,9 @@ obj-$(CONFIG_MACH_TROUT) += board-trout-mmc.o board-trout-wifi.o
 obj-$(CONFIG_ARCH_QSD8X50) += devices-qsd8x50.o clock-pcom-lookup.o
 obj-$(CONFIG_MACH_QSD8X50_SURF) += board-qsd8x50.o
 obj-$(CONFIG_MACH_QSD8X50_FFA) += board-qsd8x50.o
-obj-$(CONFIG_ARCH_MSM8X60) += devices-msm8x60.o clock-local.o clock-8x60.o acpuclock-8x60.o
+#platform-bsp@lge.com : differentiate board-msm8x60.o per I-board
+#obj-$(CONFIG_ARCH_MSM8X60) += devices-msm8x60.o clock-local.o clock-8x60.o acpuclock-8x60.o
+obj-$(CONFIG_ARCH_MSM8X60) += clock-local.o clock-8x60.o acpuclock-8x60.o
 obj-$(CONFIG_ARCH_MSM8X60) += clock-rpm.o
 obj-$(CONFIG_ARCH_MSM8X60) += saw-regulator.o
 obj-$(CONFIG_ARCH_MSM8X60) += footswitch-8x60.o
@@ -205,7 +207,9 @@ obj-$(CONFIG_MACH_MSM8X60_FFA) += board-msm8x60.o
 obj-$(CONFIG_MACH_MSM8X60_FLUID) += board-msm8x60.o
 obj-$(CONFIG_MACH_MSM8X60_DRAGON) += board-msm8x60.o
 obj-$(CONFIG_MACH_TYPE_MSM8X60_FUSION) += board-msm8x60.o mdm.o
-obj-$(CONFIG_MACH_MSM8X60_FUSN_FFA) += board-msm8x60.o mdm.o
+#platform-bsp@lge.com : differentiate board-msm8x60.o per I-board
+#obj-$(CONFIG_MACH_MSM8X60_FUSN_FFA) += board-msm8x60.o mdm.o
+obj-$(CONFIG_MACH_MSM8X60_FUSN_FFA) += mdm.o
 obj-$(CONFIG_TROUT_H2W) += board-trout-h2w.o
 obj-$(CONFIG_TROUT_BATTCHG) += htc_battery.o
 obj-$(CONFIG_TROUT_PWRSINK) += htc_pwrsink.o
@@ -279,12 +283,20 @@ endif
 obj-$(CONFIG_ARCH_MSM7X27) += gpiomux-7x27.o gpiomux-v1.o gpiomux.o
 obj-$(CONFIG_ARCH_MSM7X30) += gpiomux-7x30.o gpiomux-v1.o gpiomux.o
 obj-$(CONFIG_ARCH_QSD8X50) += gpiomux-8x50.o gpiomux-v1.o gpiomux.o
-obj-$(CONFIG_ARCH_MSM8X60) += gpiomux-8x60.o gpiomux-v2.o gpiomux.o
+#platform-bsp@lge.com : differentiate gpiomux-8x60.o per I-board
+#obj-$(CONFIG_ARCH_MSM8X60) += gpiomux-8x60.o gpiomux-v2.o gpiomux.o
+obj-$(CONFIG_ARCH_MSM8X60) += gpiomux-v2.o gpiomux.o
+obj-$(CONFIG_ARCH_MSM8X60) += mdm.o
 obj-$(CONFIG_ARCH_MSM8960) += gpiomux-v2.o gpiomux.o
 obj-$(CONFIG_ARCH_APQ8064) += gpiomux-v2.o gpiomux.o
 obj-$(CONFIG_ARCH_MSM9615) += gpiomux-v2.o gpiomux.o
 obj-$(CONFIG_ARCH_MSMCOPPER) += gpiomux-v2.o gpiomux.o
 
+#LGE_ADD_S, [soojin.chae@lge.com], 2011-08-05, < Add SDIO DEBUG CH feature >
+ifdef CONFIG_MSM_SDIO_AL
+obj-$(CONFIG_LGE_SDIO_DEBUG_CH) += sdio_debug_ch.o
+endif
+#LGE_ADD_E, [soojin.chae@lge.com], 2011-08-05, < Add SDIO DEBUG CH feature >
 ifdef CONFIG_FSM9XXX_TLMM
 obj-y   += gpio-fsm9xxx.o
 else

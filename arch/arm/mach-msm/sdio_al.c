@@ -1223,7 +1223,11 @@ static int read_mailbox(struct sdio_al_device *sdio_al_dev, int from_isr)
 		   We need to keep reading mailbox to wait for the appropriate
 		   write avail and cannot sleep. Ignore SMEM channel that has
 		   only one direction. */
+#ifdef CONFIG_LGE_SDIO_DEBUG_CH
+		if (strcmp(ch->name, "SDIO_SMEM") && strcmp(ch->name, "SDIO_ULS"))
+#else /* QCT original source */
 		if (strncmp(ch->name, "SDIO_SMEM", CHANNEL_NAME_SIZE))
+#endif /* CONFIG_LGE_SDIO_DEBUG_CH */
 			any_write_pending |=
 			(new_write_avail < ch->ch_config.max_tx_threshold);
 	}

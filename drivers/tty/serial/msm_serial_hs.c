@@ -2114,6 +2114,14 @@ static struct uart_ops msm_hs_ops = {
 	.release_port = msm_hs_release_port,
 	.request_port = msm_hs_request_port,
 };
+//Blue-Z Verifier
+#if defined(CONFIG_MACH_LGE_I_BOARD)
+struct uart_port* msm_hs_get_bt_uport(unsigned int line)
+{
+	return &q_uart_port[line].uport;
+}
+EXPORT_SYMBOL(msm_hs_get_bt_uport);
+#endif
 
 module_init(msm_serial_hs_init);
 module_exit(msm_serial_hs_exit);

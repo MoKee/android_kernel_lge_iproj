@@ -35,25 +35,136 @@
 struct pmic8xxx_pwrkey {
 	struct input_dev *pwr;
 	int key_press_irq;
+  int key_release_irq;
+/* [LGE_UPDATE_S - PowerOff CHG] */
+	struct hrtimer timer;
+	bool key_pressed;
+	bool pressed_first;
+
+/* [LGE_UPDATE_E - PowerOff CHG] */
 	const struct pm8xxx_pwrkey_platform_data *pdata;
+	spinlock_t lock;  /* [LGE_UPDATE  - PowerOff CHG] */
 };
+
+static bool long_key_pressed = false;
+
+/* [LGE_UPDATE_S - PowerOff CHG] */
+static enum hrtimer_restart pmic8xxx_pwrkey_timer(struct hrtimer *timer)
+{
+	unsigned long flags;
+	struct pmic8xxx_pwrkey *pwrkey = container_of(timer,
+						struct pmic8xxx_pwrkey,	timer);
+  
+
+	spin_lock_irqsave(&pwrkey->lock, flags);
+  long_key_pressed = true;
+	pwrkey->key_pressed = true;
+
+	//input_report_key(pwrkey->pwr, KEY_POWER, 1);
+	//input_sync(pwrkey->pwr);
+
+  input_report_key(pwrkey->pwr, KEY_PWR_OFF_CHG_REBOOT, 1);
+  input_sync(pwrkey->pwr);
+    
+	spin_unlock_irqrestore(&pwrkey->lock, flags);
+
+  return HRTIMER_NORESTART;
+}
+/* [LGE_UPDATE_E - PowerOff CHG] */
 
 static irqreturn_t pwrkey_press_irq(int irq, void *_pwrkey)
 {
 	struct pmic8xxx_pwrkey *pwrkey = _pwrkey;
 
+  /* [LGE_UPDATE_S  - PowerOff CHG] */
+	const struct pm8xxx_pwrkey_platform_data *pdata = pwrkey->pdata;
+	unsigned long flags;
+
+	spin_lock_irqsave(&pwrkey->lock, flags);
+
+	if (pwrkey->pressed_first) 
+  {
+		/*
+		 * If pressed_first flag is set already then release interrupt
+		 * has occured first. Events are handled in the release IRQ so
+		 * return.
+		 */
+		pwrkey->pressed_first = false;
+		spin_unlock_irqrestore(&pwrkey->lock, flags);
+		return IRQ_HANDLED;
+	} 
+  else 
+  {
+    pwrkey->pressed_first = true;
+
 	input_report_key(pwrkey->pwr, KEY_POWER, 1);
 	input_sync(pwrkey->pwr);
 
+		hrtimer_start(&pwrkey->timer,
+				ktime_set(pdata->pwrkey_time_ms / 1000,
+				(pdata->pwrkey_time_ms % 1000) * 1000000),
+				HRTIMER_MODE_REL);
+
+    spin_unlock_irqrestore(&pwrkey->lock, flags);
 	return IRQ_HANDLED;
+	}
+  /* [LGE_UPDATE_E  - PowerOff CHG] */
 }
 
 static irqreturn_t pwrkey_release_irq(int irq, void *_pwrkey)
 {
 	struct pmic8xxx_pwrkey *pwrkey = _pwrkey;
 
+  /* [LGE_UPDATE_S  - PowerOff CHG] */
+	unsigned long flags;
+
+	spin_lock_irqsave(&pwrkey->lock, flags);
+  
+	if (pwrkey->pressed_first) 
+  {
+    pwrkey->pressed_first = false;
+    hrtimer_cancel(&pwrkey->timer);
+
+    if(long_key_pressed)
+    {
+      input_report_key(pwrkey->pwr, KEY_POWER, 0);
+	    input_sync(pwrkey->pwr);
+      
+      input_report_key(pwrkey->pwr, KEY_PWR_OFF_CHG_REBOOT, 0);
+	    input_sync(pwrkey->pwr);
+    }
+    else
+    {
+      input_report_key(pwrkey->pwr, KEY_POWER, 0);
+	    input_sync(pwrkey->pwr);
+    }
+	} 
+  else 
+  {
+		/*
+		 * Set this flag true so that in the subsequent interrupt of
+		 * press we can know release interrupt came first
+		 */
+		pwrkey->pressed_first = true;
+		/* no pwrkey time, means no delay in pwr key reporting */
+		if (!long_key_pressed) 
+    {
+			input_report_key(pwrkey->pwr, KEY_POWER, 1);
+			input_sync(pwrkey->pwr);
 	input_report_key(pwrkey->pwr, KEY_POWER, 0);
 	input_sync(pwrkey->pwr);
+			spin_unlock_irqrestore(&pwrkey->lock, flags);
+			return IRQ_HANDLED;
+		}
+		input_report_key(pwrkey->pwr, KEY_PWR_OFF_CHG_REBOOT, 1);
+		input_sync(pwrkey->pwr);
+		input_report_key(pwrkey->pwr, KEY_PWR_OFF_CHG_REBOOT, 0);
+		input_sync(pwrkey->pwr);
+	}
+
+  long_key_pressed = false;
+	spin_unlock_irqrestore(&pwrkey->lock, flags);
+  /* [LGE_UPDATE_E  - PowerOff CHG] */
 
 	return IRQ_HANDLED;
 }
@@ -64,7 +175,10 @@ static int pmic8xxx_pwrkey_suspend(struct device *dev)
 	struct pmic8xxx_pwrkey *pwrkey = dev_get_drvdata(dev);
 
 	if (device_may_wakeup(dev))
+  { 
 		enable_irq_wake(pwrkey->key_press_irq);
+    enable_irq_wake(pwrkey->key_release_irq); /* [LGE_UPDATE  - PowerOff CHG] */
+  }
 
 	return 0;
 }
@@ -74,7 +188,10 @@ static int pmic8xxx_pwrkey_resume(struct device *dev)
 	struct pmic8xxx_pwrkey *pwrkey = dev_get_drvdata(dev);
 
 	if (device_may_wakeup(dev))
+  { 
 		disable_irq_wake(pwrkey->key_press_irq);
+    disable_irq_wake(pwrkey->key_release_irq);  /* [LGE_UPDATE  - PowerOff CHG] */
+  }
 
 	return 0;
 }
@@ -107,11 +224,21 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
+
+  /* [LGE_UPDATE_S  - PowerOff CHG] */
+	if (pdata->pwrkey_time_ms &&
+	     (pdata->pwrkey_time_ms < 500 || pdata->pwrkey_time_ms > 1000)) {
+		dev_err(&pdev->dev, "invalid power key time supplied\n");
+		return -EINVAL;
+	}
+  /* [LGE_UPDATE_E  - PowerOff CHG] */
+
 	pwrkey = kzalloc(sizeof(*pwrkey), GFP_KERNEL);
 	if (!pwrkey)
 		return -ENOMEM;
 
 	pwrkey->pdata = pdata;
+	pwrkey->pressed_first = false;  /* [LGE_UPDATE  - PowerOff CHG] */
 
 	pwr = input_allocate_device();
 	if (!pwr) {
@@ -121,6 +248,7 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	}
 
 	input_set_capability(pwr, EV_KEY, KEY_POWER);
+	input_set_capability(pwr, EV_KEY, KEY_PWR_OFF_CHG_REBOOT);   /* [LGE_UPDATE  - PowerOff CHG] */
 
 	pwr->name = "pmic8xxx_pwrkey";
 	pwr->phys = "pmic8xxx_pwrkey/input0";
@@ -148,6 +276,13 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 		goto free_input_dev;
 	}
 
+  /* [LGE_UPDATE_S  - PowerOff CHG] */
+  hrtimer_init(&pwrkey->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	pwrkey->timer.function = pmic8xxx_pwrkey_timer;
+  /* [LGE_UPDATE_E  - PowerOff CHG] */
+
+	spin_lock_init(&pwrkey->lock);
+
 	err = input_register_device(pwr);
 	if (err) {
 		dev_dbg(&pdev->dev, "Can't register power key: %d\n", err);
@@ -155,9 +290,28 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	}
 
 	pwrkey->key_press_irq = key_press_irq;
+  pwrkey->key_release_irq = key_release_irq;  /* [LGE_UPDATE  - PowerOff CHG] */
 	pwrkey->pwr = pwr;
 
 	platform_set_drvdata(pdev, pwrkey);
+//==========================================ADD========================================start
+	/* Check if power-key is pressed at boot up */
+	err = pm8xxx_read_irq_stat(pdev->dev.parent,key_press_irq);
+		if (err < 0) {
+			dev_err(&pdev->dev, "Key-press status at boot failed rc=%d\n",
+										err);
+			goto unreg_input_dev;
+		}
+		if (err) {
+			if (!pwrkey->pdata->pwrkey_time_ms)
+				input_report_key(pwrkey->pwr, KEY_POWER, 1);
+			else
+	// change key value to support ICS HOME key yongmin.jung@lge.com 2011.11.21
+				input_report_key(pwrkey->pwr, KEY_POWER, 1);
+			input_sync(pwrkey->pwr);
+			pwrkey->pressed_first = true;
+		}
+//==========================================ADD========================================end
 
 	err = request_any_context_irq(key_press_irq, pwrkey_press_irq,
 		IRQF_TRIGGER_RISING, "pmic8xxx_pwrkey_press", pwrkey);

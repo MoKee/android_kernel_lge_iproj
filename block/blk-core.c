@@ -2025,6 +2025,8 @@ bool blk_update_request(struct request *req, int error, unsigned int nr_bytes)
 	 */
 	if (req->cmd_type == REQ_TYPE_FS)
 		req->errors = 0;
+/* byongdoo.oh@lge.com remove error message at pulling sd card without unmount */
+#ifdef LGE_REMOVE_ERROR
 
 	if (error && req->cmd_type == REQ_TYPE_FS &&
 	    !(req->cmd_flags & REQ_QUIET)) {
@@ -2049,6 +2051,7 @@ bool blk_update_request(struct request *req, int error, unsigned int nr_bytes)
 		       error_type, req->rq_disk ? req->rq_disk->disk_name : "?",
 		       (unsigned long long)blk_rq_pos(req));
 	}
+#endif
 
 	blk_account_io_completion(req, nr_bytes);
 

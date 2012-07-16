@@ -11,6 +11,9 @@
 #define RAM_DUMP_DONE		_IOW(CHARM_CODE, 6, int)
 #define WAIT_FOR_RESTART	_IOR(CHARM_CODE, 7, int)
 
+//LGE_Change_S jaseseung.noh@lge.com Resetting MDM
+#define CHARM_FORCE_RESET       _IO(CHARM_CODE, 8)
+//LGE_Change_E jaseseung.noh@lge.com Resetting MDM
 enum charm_boot_type {
 	CHARM_NORMAL_BOOT = 0,
 	CHARM_RAM_DUMPS,

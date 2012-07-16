@@ -17,6 +17,11 @@
 struct charm_platform_data {
 	void (*charm_modem_on)(void);
 	void (*charm_modem_off)(void);
+// LGE_Change_S jaseseung.noh@lge.com Resetting MDM
+#ifdef CONFIG_LGE_MDM_PMIC_8028
+       void (*charm_force_reset)(void);
+#endif
+//LGE_Change_E jaseseung.noh@lge.com Resetting MDM
 };
 
 #define AP2MDM_STATUS   136

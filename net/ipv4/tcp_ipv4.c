@@ -84,7 +84,19 @@
 #include <linux/scatterlist.h>
 
 int sysctl_tcp_tw_reuse __read_mostly;
+
+#ifdef CONFIG_MACH_LGE_I_BOARD_DCM
+ /*Android Original Value  
 int sysctl_tcp_low_latency __read_mostly;
+*/
+//[LGE_change] kernel parameter change for DRPT T-put [jihye0217.lee@lge.com] 
+ int sysctl_tcp_low_latency __read_mostly = 1;
+//[LGE_change] kernel parameter change for DRPT T-put [jihye0217.lee@lge.com] 
+#else
+int sysctl_tcp_low_latency __read_mostly;
+#endif
+
+
 EXPORT_SYMBOL(sysctl_tcp_low_latency);
 
 

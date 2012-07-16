@@ -222,6 +222,9 @@ struct external_common_state_type {
 	int (*read_edid_block)(int block, uint8 *edid_buf);
 	int (*hpd_feature)(int on);
 #endif
+#ifdef CONFIG_LGE_MHL_SII9244	
+	int cable_connected;
+#endif
 };
 
 /* The external interface driver needs to initialize the common state. */
@@ -254,4 +257,7 @@ void hdmi_common_init_panel_info(struct msm_panel_info *pinfo);
 int external_common_state_create(struct platform_device *pdev);
 void external_common_state_remove(void);
 
+#ifdef CONFIG_LGE_MHL_SII9244	
+extern int mhl_power_on(void);
+#endif 
 #endif /* __EXTERNAL_COMMON_H__ */

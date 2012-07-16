@@ -47,6 +47,11 @@
 
 static void (*power_on_charm)(void);
 static void (*power_down_charm)(void);
+//LGE_Change_S jaseseung.noh@lge.com Resetting MDM
+#ifdef CONFIG_LGE_MDM_PMIC_8028
+static void (*power_reset_charm)(void);
+#endif
+//LGE_Change_E jaseseung.noh@lge.com Resetting MDM
 
 static int charm_debug_on;
 static int charm_status_irq;
@@ -57,6 +62,12 @@ static int charm_boot_status;
 static int charm_ram_dump_status;
 static struct workqueue_struct *charm_queue;
 
+//wj1208.jo@lge.com, 2011-09-20, [MDM BSP] for ULS display
+#ifdef CONFIG_LGE_SDIO_DEBUG_CH
+int uls_mdm_crash_fatal_flag = false;	// set to true from MDM2AP_ERRFATAL(1)
+int uls_mdm_status_low_flag = false;	// set to true from MDM2AP_STATUS(0)
+#endif /*CONFIG_LGE_SDIO_DEBUG_CH*/
+//wj1208.jo@lge.com, 2011-09-20, [MDM BSP] for ULS display
 #define CHARM_DBG(...)	do { if (charm_debug_on) \
 					pr_info(__VA_ARGS__); \
 			} while (0);
@@ -65,6 +76,13 @@ static struct workqueue_struct *charm_queue;
 DECLARE_COMPLETION(charm_needs_reload);
 DECLARE_COMPLETION(charm_boot);
 DECLARE_COMPLETION(charm_ram_dumps);
+
+#ifdef CONFIG_MSM_SUBSYSTEM_RESTART //platform-bsp@lge.com : 
+int charm_boot_mode(void)
+{
+	return (int)boot_type;
+}
+#endif
 
 static void charm_disable_irqs(void)
 {
@@ -119,9 +137,10 @@ static int charm_panic_prep(struct notifier_block *this,
 
 	CHARM_DBG("%s: setting AP2MDM_ERRFATAL high for a non graceful reset\n",
 			 __func__);
+#if 0 //platform-bsp@lge.com 2011-12-09, disable pm8058_stay_on to fix error in crash handler 
 	if (get_restart_level() == RESET_SOC)
 		pm8xxx_stay_on();
-
+#endif
 	charm_disable_irqs();
 	gpio_set_value(AP2MDM_ERRFATAL, 1);
 	gpio_set_value(AP2MDM_WAKEUP, 1);
@@ -172,6 +191,9 @@ static long charm_modem_ioctl(struct file *filp, unsigned int cmd,
 			charm_boot_status = -EIO;
 		else
 			charm_boot_status = 0;
+#ifdef CONFIG_MSM_SUBSYSTEM_RESTART  //platform-bsp@lge.com : ONLY USE WHEN FIRST MDM BOOT
+		if(first_boot)
+#endif
 		charm_ready = 1;
 
 		gpio_set_value(AP2MDM_KPDPWR_N, 0);
@@ -197,6 +219,15 @@ static long charm_modem_ioctl(struct file *filp, unsigned int cmd,
 			put_user(boot_type, (unsigned long __user *) arg);
 		INIT_COMPLETION(charm_needs_reload);
 		break;
+//LGE_Change_S jaseseung.noh@lge.com Resetting MDM
+#ifdef CONFIG_LGE_MDM_PMIC_8028
+       case CHARM_FORCE_RESET:
+               printk("OBD %s: wait for charm to reset\n",
+                               __func__);
+               power_reset_charm();
+               break;
+#endif
+//LGE_Change_E jaseseung.noh@lge.com Resetting MDM
 	default:
 		pr_err("%s: invalid ioctl cmd = %d\n", __func__, _IOC_NR(cmd));
 		ret = -EINVAL;
@@ -229,6 +260,10 @@ struct miscdevice charm_modem_misc = {
 static void charm_status_fn(struct work_struct *work)
 {
 	pr_info("Reseting the charm because status changed\n");
+
+#ifdef CONFIG_LGE_SDIO_DEBUG_CH
+        uls_mdm_status_low_flag = true; //wj1208.jo@lge.com, 2011-09-20, [MDM BSP] for ULS display
+#endif /*CONFIG_LGE_SDIO_DEBUG_CH*/
 	subsystem_restart("external_modem");
 }
 
@@ -237,8 +272,13 @@ static DECLARE_WORK(charm_status_work, charm_status_fn);
 static void charm_fatal_fn(struct work_struct *work)
 {
 	pr_info("Reseting the charm due to an errfatal\n");
+#if 0 //platform-bsp@lge.com 2011-12-09, disable pm8058_stay_on to fix error in crash handler 
 	if (get_restart_level() == RESET_SOC)
 		pm8xxx_stay_on();
+#endif
+#ifdef CONFIG_LGE_SDIO_DEBUG_CH	
+	uls_mdm_crash_fatal_flag = true; //wj1208.jo@lge.com, 2011-09-20, [MDM BSP] for ULS display
+#endif /*CONFIG_LGE_SDIO_DEBUG_CH*/
 	subsystem_restart("external_modem");
 }
 
@@ -262,6 +302,10 @@ static irqreturn_t charm_status_change(int irq, void *dev_id)
 		queue_work(charm_queue, &charm_status_work);
 	} else if (gpio_get_value(MDM2AP_STATUS) == 1) {
 		CHARM_DBG("%s: charm is now ready\n", __func__);
+#ifdef CONFIG_MSM_SUBSYSTEM_RESTART //platform-bsp@lge.com : disable errfatal INT until get MDM2AP_STATUS after subsystem-restart
+		if(!first_boot)
+			charm_ready = 1;
+#endif
 	}
 	return IRQ_HANDLED;
 }
@@ -328,6 +372,15 @@ static int __init charm_modem_probe(struct platform_device *pdev)
 	gpio_request(MDM2AP_ERRFATAL, "MDM2AP_ERRFATAL");
 	gpio_request(AP2MDM_WAKEUP, "AP2MDM_WAKEUP");
 
+	/* byongdoo.oh@lge.com 2011.11.05 remove MDM mal-function
+	   Sometimes, After reset, the phone can not open SMEM channel between MSM and MDM 
+	   if there is no chance to enable PM8028.
+	   This case is half booting state which is charging state
+	   Enable PM8028 at LK and disalbe at charm_modem_probe  */
+#ifdef CONFIG_LGE_MDM_PMIC_8028
+	gpio_direction_output(AP2MDM_KPDPWR_N, 0);
+#endif
+
 	gpio_direction_output(AP2MDM_STATUS, 1);
 	gpio_direction_output(AP2MDM_ERRFATAL, 0);
 	gpio_direction_output(AP2MDM_WAKEUP, 0);
@@ -337,6 +390,11 @@ static int __init charm_modem_probe(struct platform_device *pdev)
 	power_on_charm = d->charm_modem_on;
 	power_down_charm = d->charm_modem_off;
 
+//LGE_Change_S jaseseung.noh@lge.com Resetting MDM
+#ifdef CONFIG_LGE_MDM_PMIC_8028
+       power_reset_charm = d->charm_force_reset;
+#endif
+//LGE_Change_E jaseseung.noh@lge.com Resetting MDM
 	charm_queue = create_singlethread_workqueue("charm_queue");
 	if (!charm_queue) {
 		pr_err("%s: could not create workqueue. All charm \

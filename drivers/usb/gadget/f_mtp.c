@@ -1088,6 +1088,9 @@ mtp_function_bind(struct usb_configuration *c, struct usb_function *f)
 	if (id < 0)
 		return id;
 	mtp_interface_desc.bInterfaceNumber = id;
+#ifdef CONFIG_USB_G_LGE_ANDROID
+    mtp_ext_config_desc.function.bFirstInterfaceNumber = id;
+#endif
 
 	/* allocate endpoints */
 	ret = mtp_create_bulk_endpoints(dev, &mtp_fullspeed_in_desc,

@@ -25,6 +25,10 @@
 #include <linux/mfd/pmic8901.h>
 #include <linux/mfd/pm8xxx/misc.h>
 
+#ifdef CONFIG_LGE_ERROR_HANDLER
+#include <linux/rtc.h>
+#endif
+
 #include <asm/mach-types.h>
 
 #include <mach/msm_iomap.h>
@@ -76,6 +80,8 @@ static struct notifier_block panic_blk = {
 
 static void set_dload_mode(int on)
 {
+	/* neo.kang@lge.com 2011-06-24, for knowing when set dload */
+	printk("%s : %d\n", __func__, on);
 	if (dload_mode_addr) {
 		__raw_writel(on ? 0xE47B337D : 0, dload_mode_addr);
 		__raw_writel(on ? 0xCE14091A : 0,
@@ -120,6 +126,11 @@ static void __msm_power_off(int lower_pshold)
 #ifdef CONFIG_MSM_DLOAD_MODE
 	set_dload_mode(0);
 #endif
+
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+		__raw_writel(0x77665504, restart_reason);
+#endif
+
 	pm8xxx_reset_pwr_off(0);
 
 	if (lower_pshold) {
@@ -186,21 +197,88 @@ void arch_reset(char mode, const char *cmd)
 	set_dload_mode(0);
 
 	/* Write download mode flags if we're panic'ing */
-	set_dload_mode(in_panic);
+//	set_dload_mode(in_panic);
 
 	/* Write download mode flags if restart_mode says so */
 	if (restart_mode == RESTART_DLOAD)
+#ifdef CONFIG_LGE_ERROR_HANDLER
+    {
 		set_dload_mode(1);
+        __raw_writel(0x6d63c421, restart_reason);
+        goto reset;
+    }
+#else
+		set_dload_mode(1);
+#endif
 
 	/* Kill download mode if master-kill switch is set */
 	if (!download_mode)
 		set_dload_mode(0);
 #endif
 
+#ifdef CONFIG_LGE_ERROR_HANDLER
+	{
+		struct timespec ts;
+		struct rtc_time tm;
+
+		getnstimeofday(&ts);
+		rtc_time_to_tm(ts.tv_sec, &tm);
+
+		printk(KERN_NOTICE "restart time : "
+			"%d-%02d-%02d %02d:%02d:%02d.%09lu UTC\n",
+			tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+			tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec);
+	}
+#endif
 	printk(KERN_NOTICE "Going down for restart now\n");
 
 	pm8xxx_reset_pwr_off(1);
 
+	/* neo.kang@lge.com 2011-06-01
+	 * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+	if (in_panic == 1) {
+		if (restart_mode == SUB_THD_F_PWR)
+			__raw_writel(0x6d630040, restart_reason);
+		else if( restart_mode == SUB_THD_F_SD)
+			__raw_writel(0x6d630020, restart_reason);
+		else if( restart_mode == SUB_THD_F_PWR)
+			__raw_writel(0x6d630010, restart_reason);
+		else if( restart_mode == SUB_UNAB_THD)
+			__raw_writel(0x6d630008, restart_reason);
+		else if( restart_mode == SUB_RESET_SOC)
+			__raw_writel(0x6d630004, restart_reason);
+		else if( restart_mode == SUB_RESET_SOC_8K)
+			__raw_writel(0x6d630014, restart_reason);
+		else if( restart_mode == SUB_RESET_SOC_9K)
+			__raw_writel(0x6d630024, restart_reason);
+		else if( restart_mode == SUB_RESET_SOC_Q6)
+			__raw_writel(0x6d630034, restart_reason);
+		else if( restart_mode == SUB_UNKNOWN)
+			__raw_writel(0x6d630002, restart_reason);
+		else
+			__raw_writel(0x6d630100, restart_reason);
+	} else {
+		if (cmd != NULL) {
+			if (!strncmp(cmd, "bootloader", 10)) {
+				__raw_writel(0x77665500, restart_reason);
+			} else if (!strncmp(cmd, "recovery", 8)) {
+				__raw_writel(0x77665502, restart_reason);
+			} else if (!strncmp(cmd, "oem-", 4)) {
+				unsigned long code;
+				code = simple_strtoul(cmd + 4, NULL, 16) & 0xff;
+				__raw_writel(0x6f656d00 | code, restart_reason);
+			} else if (!strncmp(cmd,"--bnr_recovery",14)) {
+				__raw_writel(0x77665503,restart_reason);
+			} else {
+				__raw_writel(0x77665501, restart_reason);
+			}
+		} else {
+			__raw_writel(0x00000000, restart_reason);
+		}
+	}
+reset:
+#else // qct original
 	if (cmd != NULL) {
 		if (!strncmp(cmd, "bootloader", 10)) {
 			__raw_writel(0x77665500, restart_reason);
@@ -214,15 +292,24 @@ void arch_reset(char mode, const char *cmd)
 			__raw_writel(0x77665501, restart_reason);
 		}
 	}
+#endif // CONFIG_LGE_ERROR_HANDLER
 
 	__raw_writel(0, msm_tmr0_base + WDT0_EN);
-	if (!(machine_is_msm8x60_fusion() || machine_is_msm8x60_fusn_ffa())) {
+#ifdef CONFIG_LGE_PM
+	  /* when we reset, sometimes phone doesn't reset */
+#else
+	if (!(machine_is_msm8x60_fusion() || machine_is_lge_i_board() ||
+		  machine_is_msm8x60_fusn_ffa())) {
+#endif		  
 		mb();
 		__raw_writel(0, PSHOLD_CTL_SU); /* Actually reset the chip */
 		mdelay(5000);
 		pr_notice("PS_HOLD didn't work, falling back to watchdog\n");
+#ifdef CONFIG_LGE_PM
+		;
+#else			
 	}
-
+#endif
 	__raw_writel(1, msm_tmr0_base + WDT0_RST);
 	__raw_writel(5*0x31F3, msm_tmr0_base + WDT0_BARK_TIME);
 	__raw_writel(0x31F3, msm_tmr0_base + WDT0_BITE_TIME);
@@ -231,6 +318,10 @@ void arch_reset(char mode, const char *cmd)
 	mdelay(10000);
 	printk(KERN_ERR "Restarting has failed\n");
 }
+
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+EXPORT_SYMBOL(arch_reset);
+#endif
 
 static int __init msm_restart_init(void)
 {
@@ -247,6 +338,12 @@ static int __init msm_restart_init(void)
 	restart_reason = MSM_IMEM_BASE + RESTART_REASON_ADDR;
 	pm_power_off = msm_power_off;
 
+	/* neo.kang@lge.com 2011-06-01
+	 * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+	//__raw_writel(0x6d63ad00, restart_reason);
+	set_dload_mode(0);
+#endif
 	if (pmic_reset_irq != 0) {
 		rc = request_any_context_irq(pmic_reset_irq,
 					resout_irq_handler, IRQF_TRIGGER_HIGH,

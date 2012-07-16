@@ -57,6 +57,10 @@ enum {
 	STAT_DSI_MDP
 };
 
+
+//lcd black out workaround
+int dma_tx_timeout = 0;
+
 #ifdef CONFIG_FB_MSM_MDP40
 void mipi_dsi_mdp_stat_inc(int which)
 {
@@ -786,6 +790,9 @@ void mipi_dsi_host_init(struct mipi_panel_info *pinfo)
 	else
 		pinfo->rgb_swap = DSI_RGB_SWAP_BGR;
 
+	//lcd black out workaround
+	mipi_dsi_sw_reset();
+
 	if (pinfo->mode == DSI_VIDEO_MODE) {
 		data = 0;
 		if (pinfo->pulse_mode_hsa_he)
@@ -1336,7 +1343,12 @@ int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 	MIPI_OUTP(MIPI_DSI_BASE + 0x08c, 0x01);	/* trigger */
 	wmb();
 
-	wait_for_completion(&dsi_dma_comp);
+	// to avoid hang dsi completion timeout - 1s timeout
+	//wait_for_completion(&dsi_dma_comp);
+	if(!wait_for_completion_timeout(&dsi_dma_comp, msecs_to_jiffies(VSYNC_PERIOD*20))) { // 320ms
+		dma_tx_timeout = 1;
+		printk(KERN_ERR "%s: wait_for_completion_timeout err .. \n", __func__);
+	}
 
 	dma_unmap_single(&dsi_dev, tp->dmap, len, DMA_TO_DEVICE);
 	tp->dmap = 0;

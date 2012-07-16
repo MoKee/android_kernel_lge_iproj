@@ -4875,6 +4875,16 @@ msmsdcc_runtime_suspend(struct device *dev)
 	unsigned long flags;
 
 
+	// bill.jung@lge.com - Don't process normal suspend
+	if (host->mmc->index == 3)
+	{
+		printk(KERN_ERR "msmsdcc_runtime_suspend() - host->mmc->index=3 - Start\n");		
+		msmsdcc_setup_clocks(host, false);
+		host->clks_on = 0;
+		printk(KERN_ERR "msmsdcc_runtime_suspend() - host->mmc->index=3 - End\n");
+		return 0;
+	}
+	
 	if (host->plat->is_sdio_al_client)
 		return 0;
 	pr_debug("%s: %s: start\n", mmc_hostname(mmc), __func__);
@@ -4945,6 +4955,24 @@ msmsdcc_runtime_resume(struct device *dev)
 		return 0;
 
 	pr_debug("%s: %s: start\n", mmc_hostname(mmc), __func__);
+
+	// bill.jung@lge.com - Don't process normal resume
+	if (host->mmc->index == 3)
+	{
+		printk(KERN_ERR "msmsdcc_runtime_resume() - host->mmc->index=3 - Start\n");
+		
+		if (mmc->card && mmc->card->type == MMC_TYPE_SDIO) 
+		{
+			msmsdcc_setup_clocks(host, true);
+			host->clks_on = 1;
+		}
+		
+		printk(KERN_ERR "msmsdcc_runtime_resume() - host->mmc->index=3 - End\n");
+
+		return 0;
+	}
+	
+	
 	if (mmc) {
 		if (mmc->card && mmc_card_sdio(mmc->card) &&
 				mmc_card_keep_power(mmc)) {

@@ -114,6 +114,10 @@ EXPORT_SYMBOL(system_state);
 #define MAX_INIT_ARGS CONFIG_INIT_ENV_ARG_LIMIT
 #define MAX_INIT_ENVS CONFIG_INIT_ENV_ARG_LIMIT
 
+#if defined(CONFIG_LGE_PM)
+static void smpl_count(void);
+#endif
+
 extern void time_init(void);
 /* Default late time init is NULL. archs can override this later. */
 void (*__initdata late_time_init)(void);
@@ -140,6 +144,10 @@ static char *ramdisk_execute_command;
  */
 unsigned int reset_devices;
 EXPORT_SYMBOL(reset_devices);
+
+unsigned int smpl_on;
+EXPORT_SYMBOL(smpl_on);
+
 
 static int __init set_reset_devices(char *str)
 {
@@ -373,9 +381,125 @@ static noinline void __init_refok rest_init(void)
 	schedule();
 	preempt_disable();
 
+#if defined(CONFIG_LGE_PM)
+	smpl_count();
+#endif
+
 	/* Call into cpu_idle with preempt disabled */
 	cpu_idle();
 }
+
+#if defined(CONFIG_LGE_PM)
+#define PWR_ON_EVENT_KEYPAD         0x1
+#define PWR_ON_EVENT_RTC            0x2
+#define PWR_ON_EVENT_CABLE          0x4
+#define PWR_ON_EVENT_SMPL           0x8
+#define PWR_ON_EVENT_WDOG           0x10
+#define PWR_ON_EVENT_USB_CHG        0x20
+#define PWR_ON_EVENT_WALL_CHG       0x40
+#define PWR_ON_EVENT_HARD_RESET     0x100
+
+extern struct file *fget(unsigned int fd);
+extern void fput(struct file *);
+extern uint16_t power_on_status_info_get(void);
+#if 0
+static int my_atoi(const char *name)
+{
+	int val = 0;
+
+	for (;; name++) {
+		switch (*name) {
+		case '0' ... '9':
+			val = 10*val+(*name-'0');
+			break;
+		default:
+			return val;
+		}
+	}
+}
+
+static int read_file(char* filename)
+{
+	int fd = -1;
+	int val = 0;
+	char buf[2];
+	loff_t pos = 0;
+	struct file *file;
+	mm_segment_t old_fs = get_fs();
+
+	set_fs(KERNEL_DS);
+	fd = sys_open((const char __user *)filename, O_RDONLY, 0);
+	//printk("[SMPL_CNT] ===> read() : fd is %d\n", fd);
+	if (fd < 0) {
+		printk("[SMPL_CNT] === > sys_open error!!!!\n");
+		return -1;
+	}
+	else
+	{
+		file = fget(fd);
+		
+		if(file)
+		{
+			vfs_read(file, buf, sizeof(buf),&pos);
+			val = my_atoi(buf);
+			printk("[SMPL_CNT] ===> buf is %s\n", buf);
+		}
+		sys_close(fd);
+	}
+	set_fs(old_fs);
+	return val;
+}
+#endif
+
+#if 0 //joon0.lee/20111124/BLOCK UNTIL fix write_file
+static void write_file(char *filename, char* data)
+{
+	int fd = -1;
+	loff_t pos = 0;
+	struct file* file;
+	mm_segment_t old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	fd = sys_open((const char __user *)filename, O_WRONLY | O_CREAT, 0644);	
+	//printk("[SMPL_CNT] ===> write() : fd is %d\n", fd);
+	if(fd >= 0)
+	{
+		file = fget(fd);
+		if(file)
+		{
+			vfs_write(file, data, strlen(data), &pos);
+			fput(file);
+		}
+		sys_close(fd);
+	}
+	else
+		printk("[SMPL_CNT] === > write : sys_open error!!!!\n");
+	set_fs(old_fs);
+}
+#endif
+
+static void smpl_count(void)
+{
+#if 1 //joon0.lee/20111124/BLOCK UNTIL fix write_file
+//	char* file_name = "/smpl_boot";
+	uint16_t boot_cause = 0;
+
+	boot_cause = power_on_status_info_get();
+	printk("[BOOT_CAUSE] %d \n", boot_cause);
+
+	if(boot_cause==PWR_ON_EVENT_SMPL)
+	{
+		printk("[SMPL_CNT] ===> is smpl boot\n");
+		smpl_on = 1;
+	}
+	else
+	{
+		smpl_on = 0;
+	}
+#endif
+}
+#endif
+
 
 /* Check for early params. */
 static int __init do_early_param(char *param, char *val)

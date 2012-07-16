@@ -167,6 +167,13 @@ struct apr_svc_ch_dev *apr_tal_open(uint32_t svc, uint32_t dest,
 		if (rc == 0) {
 			pr_err("apr_tal:open timeout\n");
 			mutex_unlock(&apr_svc_ch[dl][dest][svc].m_lock);
+			
+			msleep(20);
+			if(dest == APR_DEST_QDSP6)
+				{panic("Q6 is not working");}
+			else
+				{panic("Modem is not working");}
+				
 			return NULL;
 		}
 		pr_debug("apr_tal:Wakeup done\n");

@@ -56,6 +56,13 @@ struct msm_cam_expander_info {
 };
 
 struct msm_camera_device_platform_data {
+	// Start LGE_BSP_CAMERA::jisun.shin@lge.com 2011-07-04	separation of camera power
+#ifdef CONFIG_LGE_CAMERA 
+		void (*camera_power_on) (void);
+		void (*camera_power_off)(void);
+#endif
+	// End LGE_BSP_CAMERA::jisun.shin@lge.com 2011-07-04  separation of camera power
+
 	int (*camera_gpio_on) (void);
 	void (*camera_gpio_off)(void);
 	struct msm_camera_io_ext ioext;

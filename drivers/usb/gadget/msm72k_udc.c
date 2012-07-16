@@ -46,6 +46,11 @@
 #include <linux/uaccess.h>
 #include <linux/wakelock.h>
 
+#ifdef CONFIG_LGE_PM_CURRENT_CABLE_TYPE
+#include <linux/msm_adc.h>
+#include "../../../lge/include/lg_power_common.h"
+#endif
+
 static const char driver_name[] = "msm72k_udc";
 
 /* #define DEBUG */
@@ -133,6 +138,9 @@ static struct timer_list phy_status_timer;
 static void ept_prime_timer_func(unsigned long data);
 static void usb_do_work(struct work_struct *w);
 static void usb_do_remote_wakeup(struct work_struct *w);
+#ifdef CONFIG_USB_G_LGE_ANDROID_FACTORY
+static void usb_id_detect(struct usb_info *ui);
+#endif
 
 
 #define USB_STATE_IDLE    0
@@ -222,6 +230,10 @@ struct usb_info {
 	struct otg_transceiver *xceiv;
 	enum usb_device_state usb_state;
 	struct wake_lock	wlock;
+
+#ifdef CONFIG_USB_G_LGE_ANDROID_FACTORY
+    struct delayed_work id_det;
+#endif
 };
 
 static const struct usb_ep_ops msm72k_ep_ops;
@@ -233,6 +245,22 @@ static int msm72k_set_halt(struct usb_ep *_ep, int value);
 static void flush_endpoint(struct msm_endpoint *ept);
 static void usb_reset(struct usb_info *ui);
 static int usb_ept_set_halt(struct usb_ep *_ep, int value);
+
+#ifdef CONFIG_LGE_PM_CURRENT_CABLE_TYPE
+static acc_cable_type usb_cable_type=NO_INIT_CABLE;
+static acc_cable_type ta_cable_type=NO_INIT_CABLE;
+#endif
+
+#ifdef  CONFIG_LGE_MHL_SII9244
+#define MHL_PWRON_DELAY	100
+extern void mhl_delayed_pwron_request(unsigned int delay_ms);
+extern void mhl_pwron_request(void);  
+extern void mhl_pwroff_request_vbus_removed(void);
+#endif
+
+#ifdef CONFIG_USB_G_LGE_ANDROID
+extern int android_charge_only(void);
+#endif
 
 static void msm_hsusb_set_speed(struct usb_info *ui)
 {
@@ -288,13 +316,491 @@ static ssize_t print_switch_state(struct switch_dev *sdev, char *buf)
 		sdev->state ? "online" : "offline");
 }
 
+
+#ifdef CONFIG_LGE_PM
+#define MSM_CHARGER_GAUGE_MISSING_TEMP_ADC 1000
+#define MSM_CHARGER_GAUGE_MISSING_TEMP       35
+#define MSM_PMIC_ADC_READ_TIMEOUT          3000
+#define CHANNEL_ADC_ACC_MISSING            2200
+extern int32_t pm8058_xoadc_clear_recentQ(void);
+struct wake_lock acc_wake_lock;
+#endif
+
+#ifdef CONFIG_LGE_PM_CURRENT_CABLE_TYPE
+static int acc_read_adc(int channel, int *mv_reading)
+{
+	int ret;
+	void *h;
+	struct adc_chan_result adc_chan_result;
+	struct completion  conv_complete_evt;
+#ifdef CONFIG_LGE_PM
+    int wait_ret;
+    wake_lock(&acc_wake_lock);
+#endif
+
+	ret = adc_channel_open(channel, &h);
+	if (ret) {
+		pr_err("%s: couldnt open channel %d ret=%d\n",
+					__func__, channel, ret);
+		goto out;
+	}
+	init_completion(&conv_complete_evt);
+	ret = adc_channel_request_conv(h, &conv_complete_evt);
+	if (ret) {
+		pr_err("%s: couldnt request conv channel %d ret=%d\n",
+						__func__, channel, ret);
+		goto out;
+	}
+
+#ifdef CONFIG_LGE_PM
+    wait_ret = wait_for_completion_timeout(&conv_complete_evt, msecs_to_jiffies(MSM_PMIC_ADC_READ_TIMEOUT));
+    if(wait_ret <= 0)
+    {
+		printk(KERN_ERR "===%s: failed to adc wait for completion!===\n",__func__);
+        goto sanity_out;
+    }
+#else
+	wait_for_completion(&conv_complete_evt);
+#endif
+
+	ret = adc_channel_read_result(h, &adc_chan_result);
+	if (ret) {
+		pr_err("%s: couldnt read result channel %d ret=%d\n",
+						__func__, channel, ret);
+		goto out;
+	}
+	ret = adc_channel_close(h);
+	if (ret) {
+		pr_err("%s: couldnt close channel %d ret=%d\n",
+						__func__, channel, ret);
+	}
+	if (mv_reading)
+		*mv_reading = adc_chan_result.measurement;
+
+#ifdef CONFIG_LGE_PM
+    wake_unlock(&acc_wake_lock);
+#endif
+	return adc_chan_result.physical;
+out:
+	pr_debug("%s: done for %d\n", __func__, channel);
+#ifdef CONFIG_LGE_PM
+    if(ret == -EBUSY)
+        adc_channel_close(h);
+
+    wake_unlock(&acc_wake_lock);
+#endif
+	return -EINVAL;
+
+#ifdef CONFIG_LGE_PM
+sanity_out:
+
+    pm8058_xoadc_clear_recentQ();
+
+	ret = adc_channel_close(h);
+    wake_unlock(&acc_wake_lock);
+    
+	if (ret) {
+		pr_err("%s: couldnt close channel %d ret=%d\n",
+						__func__, channel, ret);
+	}
+    
+    if(channel == CHANNEL_ADC_ACC)
+    {
+        printk(KERN_ERR "============== ACC adc read fail so default usb ===============\n");
+	    if (mv_reading)
+		    *mv_reading = MSM_CHARGER_GAUGE_MISSING_TEMP_ADC;
+        return CHANNEL_ADC_ACC_MISSING;
+    }
+    else
+    {
+        printk(KERN_ERR "============== adc read fail  ===============\n");
+	    return -EINVAL;
+    }
+#endif
+}
+
+
+#ifdef CONFIG_LGE_FUEL_GAUGE
+int usb_chg_type=0;
+#endif
+
+
+static acc_cable_type get_ta_cable_type(void)
+{
+	int acc_read_value = 0;
+	acc_cable_type cable_type = 0;
+
+	acc_read_value = acc_read_adc(CHANNEL_ADC_ACC, NULL);
+	pr_err("%s: TA_acc_read_value final is %d\n", __func__, acc_read_value);
+
+#if defined(CONFIG_MACH_LGE_I_BOARD_VZW)
+	if((0<=acc_read_value)&&(acc_read_value<=70))
+	{
+		cable_type = MHL_CABLE_500MA;
+	}
+	else if((960<=acc_read_value)&&(acc_read_value<=1089)) // 180K, 200K ==> 600mA TA cable
+	{
+		cable_type = TA_CABLE_600MA;
+	}
+	else if((1090<=acc_read_value)&&(acc_read_value<=1208)) // 220K, 800mA TA cable
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+	else if((1209<=acc_read_value)&&(acc_read_value<=1320)) // 270K, 800mA desk-top cradle
+	{
+		cable_type = TA_CABLE_DTC_800MA;
+	}
+	else // 0K or others, 500mA forged TA cable
+	{
+		cable_type = TA_CABLE_FORGED_500MA;
+	}
+#elif defined(CONFIG_MACH_LGE_I_BOARD_LGU)
+	if((0<=acc_read_value)&&(acc_read_value<=70))
+	{
+		cable_type = MHL_CABLE_500MA;
+	}
+	else if((2150<=acc_read_value)&&(acc_read_value<=2250)) // 0K
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+	else // others, 500mA forged TA cable
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+#elif defined(CONFIG_MACH_LGE_I_BOARD_SKT)
+	if((0<=acc_read_value)&&(acc_read_value<=70))
+	{
+		cable_type = MHL_CABLE_500MA;
+	}
+	else if((1700<=acc_read_value)&&(acc_read_value<=2250)) // 0K
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+	else // others, 500mA forged TA cable
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+#elif defined(CONFIG_MACH_LGE_I_BOARD_ATNT)
+	if((0<=acc_read_value)&&(acc_read_value<=70))
+	{
+		cable_type = MHL_CABLE_500MA;
+	}
+	else if((960<=acc_read_value)&&(acc_read_value<=1089)) // 180K, 200K ==> 600mA TA cable
+	{
+		cable_type = TA_CABLE_600MA;
+	}
+	else if((1090<=acc_read_value)&&(acc_read_value<=1208)) // 220K, 800mA TA cable
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+	else if((1209<=acc_read_value)&&(acc_read_value<=1320)) // 270K, 800mA desk-top cradle
+	{
+		cable_type = TA_CABLE_DTC_800MA;
+	}
+	else if((2000<=acc_read_value)&&(acc_read_value<=2200)) // 0K, 800mA TA cable
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+	else // 0K or others, 500mA forged TA cable
+	{
+		cable_type = TA_CABLE_FORGED_500MA;
+	}
+
+#elif defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+  if((0<=acc_read_value)&&(acc_read_value<=70))
+	{
+		cable_type = MHL_CABLE_500MA;
+	}
+	else if((960<=acc_read_value)&&(acc_read_value<=1089)) // 180K, 200K ==> 600mA TA cable
+	{
+		cable_type = TA_CABLE_600MA;
+	}
+	else if((1090<=acc_read_value)&&(acc_read_value<=1190)) // 220K, 800mA TA cable
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+	else if((1191<=acc_read_value)&&(acc_read_value<=1320)) // 270K, 800mA desk-top cradle
+	{
+		cable_type = TA_CABLE_DTC_800MA;
+	}
+  else if((1321<=acc_read_value)&&(acc_read_value<=1390)) // 330K, 800mA Gender
+	{
+		cable_type = TA_CABLE_DTC_800MA;
+	}
+	else if((2000<=acc_read_value)&&(acc_read_value<=2200)) // 0K, 800mA TA cable
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+
+	else // 0K or others, 500mA forged TA cable
+	{
+		cable_type = TA_CABLE_FORGED_500MA;
+	}
+#else
+	if((0<=acc_read_value)&&(acc_read_value<=70))
+	{
+		cable_type = MHL_CABLE_500MA;
+	}
+	else if((960<=acc_read_value)&&(acc_read_value<=1089)) // 180K, 200K ==> 600mA TA cable
+	{
+		cable_type = TA_CABLE_600MA;
+	}
+	else if((1090<=acc_read_value)&&(acc_read_value<=1208)) // 220K, 800mA TA cable
+	{
+		cable_type = TA_CABLE_800MA;
+	}
+	else if((1209<=acc_read_value)&&(acc_read_value<=1320)) // 270K, 800mA desk-top cradle
+	{
+		cable_type = TA_CABLE_DTC_800MA;
+	}
+	else // 0K or others, 500mA forged TA cable
+	{
+		cable_type = TA_CABLE_FORGED_500MA;
+	}
+#endif
+	return cable_type;
+}
+
+static acc_cable_type get_usb_cable_type(void)
+{
+	int acc_read_value = 0;
+	acc_cable_type cable_type = 0;
+
+	acc_read_value = acc_read_adc(CHANNEL_ADC_ACC, NULL);
+	pr_err("%s: usb_acc_valid_read_value is %d\n", __func__, acc_read_value);
+
+#if defined(CONFIG_MACH_LGE_I_BOARD_VZW)
+	if((340<=acc_read_value)&&(acc_read_value<=600)) // 56k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K;
+	}
+	else if((750<=acc_read_value)&&(acc_read_value<=959)) // 130k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_130K;
+	}
+	else if((1090<=acc_read_value)&&(acc_read_value<=1208)) // 180K,200K,220k ==> USB cable, 400mA
+	{
+		cable_type = USB_CABLE_400MA;
+	}
+	else if((1209<=acc_read_value)&&(acc_read_value<=1320)) // 270K, 500mA desk-top cradle
+	{
+		cable_type = USB_CABLE_DTC_500MA;
+	}
+	else if((1690<=acc_read_value)&&(acc_read_value<=1920)) // 910k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K; // Actually 910k, but run like 56k
+	}
+	else // 0K or others ==> abnormal USB cable, 400mA
+	{
+		cable_type = ABNORMAL_USB_CABLE_400MA;
+	}
+#elif defined(CONFIG_MACH_LGE_I_BOARD_LGU)
+	if((340<=acc_read_value)&&(acc_read_value<=600)) // 56k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K;
+	}
+	else if((750<=acc_read_value)&&(acc_read_value<=959)) // 130k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_130K;
+	}
+	else if((1690<=acc_read_value)&&(acc_read_value<=1920)) // 910k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K; // Actually 910k, but run like 56k
+	}
+	else if((2150<=acc_read_value)&&(acc_read_value<=2250)) // 0K
+	{
+		cable_type = USB_CABLE_400MA;
+	}
+	else //others ==> abnormal USB cable, 400mA
+	{
+		cable_type = ABNORMAL_USB_CABLE_400MA;
+	}
+
+#elif defined(CONFIG_MACH_LGE_I_BOARD_SKT)
+	if((340<=acc_read_value)&&(acc_read_value<=600))
+	{
+	  cable_type = LT_CABLE_56K;
+	}
+	else if((750<=acc_read_value)&&(acc_read_value<=959)) // 0K
+	{
+	  cable_type = LT_CABLE_130K;
+	}
+	else if((1690<=acc_read_value)&&(acc_read_value<=1920)) // 910k ==>LT cable, maximum current
+	{
+	  cable_type = LT_CABLE_56K; // Actually 910k, but run like 56k
+	}
+	else if((2150<=acc_read_value)&&(acc_read_value<=2250)) // 0K
+	{
+	  cable_type = USB_CABLE_400MA;
+	}
+	else //others ==> abnormal USB cable, 400mA
+	{
+	  cable_type = ABNORMAL_USB_CABLE_400MA;
+	}
+
+#elif defined(CONFIG_MACH_LGE_I_BOARD_ATNT)
+	if((340<=acc_read_value)&&(acc_read_value<=600)) // 56k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K;
+	}
+	else if((750<=acc_read_value)&&(acc_read_value<=959)) // 130k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_130K;
+	}
+	else if((1090<=acc_read_value)&&(acc_read_value<=1208)) // 180K,200K,220k ==> USB cable, 400mA
+	{
+		cable_type = USB_CABLE_400MA;
+	}	
+	else if((1209<=acc_read_value)&&(acc_read_value<=1320)) // 270K, 500mA desk-top cradle
+	{
+		cable_type = USB_CABLE_DTC_500MA;
+	}
+	else if((1690<=acc_read_value)&&(acc_read_value<=1920)) // 910k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K; // Actually 910k, but run like 56k
+	}
+	else // 0K or others ==> abnormal USB cable, 400mA
+	{
+		cable_type = ABNORMAL_USB_CABLE_400MA;
+	}
+#elif defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+  if((340<=acc_read_value)&&(acc_read_value<=600)) // 56k ==>LT cable, maximum current
+  {
+		cable_type = LT_CABLE_56K;
+  }
+  else if((750<=acc_read_value)&&(acc_read_value<=959)) // 130k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_130K;
+	}
+	else if((1090<=acc_read_value)&&(acc_read_value<=1210)) // 180K,200K,220k ==> USB cable, 400mA
+	{
+		cable_type = USB_CABLE_400MA;
+	}	
+	else if((1211<=acc_read_value)&&(acc_read_value<=1325)) // 270K, 500mA desk-top cradle
+	{
+		cable_type = USB_CABLE_DTC_500MA;
+	}
+  else if((1326<=acc_read_value)&&(acc_read_value<=1390)) // 330K,  Gender
+	{
+		cable_type = USB_CABLE_400MA;
+	}
+  else if((1690<=acc_read_value)&&(acc_read_value<=1920)) // 910k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K; // Actually 910k, but run like 56k
+	}
+	else // 0K or others ==> abnormal USB cable, 400mA
+	{
+		cable_type = ABNORMAL_USB_CABLE_400MA;
+	}
+#else
+	if((340<=acc_read_value)&&(acc_read_value<=600)) // 56k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K;
+	}
+	else if((750<=acc_read_value)&&(acc_read_value<=959)) // 130k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_130K;
+	}
+	else if((1090<=acc_read_value)&&(acc_read_value<=1208)) // 180K,200K,220k ==> USB cable, 400mA
+	{
+		cable_type = USB_CABLE_400MA;
+	}
+	else if((1209<=acc_read_value)&&(acc_read_value<=1320)) // 270K, 500mA desk-top cradle
+	{
+		cable_type = USB_CABLE_DTC_500MA;
+	}
+	else if((1690<=acc_read_value)&&(acc_read_value<=1920)) // 910k ==>LT cable, maximum current
+	{
+		cable_type = LT_CABLE_56K; // Actually 910k, but run like 56k
+	}
+	else // 0K or others ==> abnormal USB cable, 400mA
+	{
+		cable_type = ABNORMAL_USB_CABLE_400MA;
+	}
+#endif
+
+	return cable_type;
+}
+
+#endif
+
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+static void set_ext_cable_type_value(acc_cable_type ta_cable,acc_cable_type usb_cable)
+{
+	ta_cable_type = ta_cable;
+	usb_cable_type = usb_cable;
+
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+  if(ta_cable != 0)
+    usb_chg_type = 2;
+
+  if(usb_cable != 0)
+    usb_chg_type = 3;
+#endif
+}
+acc_cable_type get_ext_cable_type_value(void)
+{
+	if(ta_cable_type != NO_INIT_CABLE)
+		return ta_cable_type;
+	else
+		return usb_cable_type;
+}
+
+EXPORT_SYMBOL(get_ext_cable_type_value);
+
+#endif
+
+
+#if !defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+#ifdef CONFIG_LGE_FUEL_GAUGE
+int usb_chg_type_for_FG=0;
+#endif
+#endif
 static inline enum chg_type usb_get_chg_type(struct usb_info *ui)
 {
+#ifdef CONFIG_LGE_FUEL_GAUGE
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+  if ((readl(USB_PORTSC) & PORTSC_LS) == PORTSC_LS) {
+		usb_chg_type = 2;
+		return USB_CHG_TYPE__WALLCHARGER;
+	} else {
+		usb_chg_type = 3;
+		return USB_CHG_TYPE__SDP;
+	}
+#else
+	if ((readl(USB_PORTSC) & PORTSC_LS) == PORTSC_LS) {
+		usb_chg_type_for_FG = 2;
+		return USB_CHG_TYPE__WALLCHARGER;
+	} else {
+		usb_chg_type_for_FG = 3;
+		return USB_CHG_TYPE__SDP;
+	}
+#endif
+#else
 	if ((readl(USB_PORTSC) & PORTSC_LS) == PORTSC_LS)
 		return USB_CHG_TYPE__WALLCHARGER;
 	else
 		return USB_CHG_TYPE__SDP;
+#endif
 }
+
+#if !defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+#ifdef CONFIG_LGE_FUEL_GAUGE
+EXPORT_SYMBOL(usb_chg_type_for_FG);
+#endif
+#endif
+
+#ifdef CONFIG_LGE_HALLIC_CARKIT
+extern void hall_ic_dock_report_event(int state);
+extern int hall_ic_get_dock_state(void);
+#endif
+
+#ifdef CONFIG_LGE_PM_CURRENT_CABLE_TYPE
+/* START. kiwone.seo@lge.com, 2011-08-11, to meet VZW spec , in case of booting up with TA+no battery */
+extern int get_is_battery_present(void);
+int first_check = 0;
+/* END */
+#endif
 
 #define USB_WALLCHARGER_CHG_CURRENT 1800
 static int usb_get_max_power(struct usb_info *ui)
@@ -319,11 +825,103 @@ static int usb_get_max_power(struct usb_info *ui)
 	if (temp == USB_CHG_TYPE__INVALID)
 		return -ENODEV;
 
+#ifdef CONFIG_LGE_PM_CURRENT_CABLE_TYPE
+	if(temp == USB_CHG_TYPE__WALLCHARGER)
+	{
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+	  usb_chg_type = 2;
+#endif
+    
+		ta_cable_type = get_ta_cable_type();
+		if(ta_cable_type == MHL_CABLE_500MA)
+			bmaxpow = 500;
+		else if(ta_cable_type == TA_CABLE_600MA)
+			bmaxpow = 600;
+		else if(ta_cable_type == TA_CABLE_800MA)
+			bmaxpow = 800;
+		else if(ta_cable_type == TA_CABLE_DTC_800MA)
+			bmaxpow = 800;
+		else if(ta_cable_type == TA_CABLE_FORGED_500MA)
+			bmaxpow = 500; 		
+
+#if 0
+/* START. kiwone.seo@lge.com, 2011-08-11, to meet VZW spec , in case of booting up with TA+no battery */
+		if(0 == get_is_battery_present() && (first_check == 0))
+		{	
+			pr_err("====%s: TA without battery\n", __func__);
+			bmaxpow = 1200;
+			first_check = 1;
+		}
+/* END */
+#endif
+		pr_err("====%s: ta_cable_type=%d,maxpower=%d\n", __func__,ta_cable_type,bmaxpow);
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+		set_ext_cable_type_value(ta_cable_type,NO_INIT_CABLE);
+#endif
+
+#ifdef CONFIG_LGE_HALLIC_CARKIT
+		if( (ta_cable_type == TA_CABLE_DTC_800MA) )
+			hall_ic_dock_report_event(1);
+#endif
+
+		return bmaxpow;
+	}
+	else if(temp == USB_CHG_TYPE__SDP)
+	{		
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+	  usb_chg_type = 3;
+#endif
+
+		usb_cable_type = get_usb_cable_type();
+/* platform.bsp@lge.com, 2011-08-11 USB cable remove issue */
+		if (ui->state == USB_STATE_OFFLINE)
+			usb_cable_type = NO_INIT_CABLE;
+/* End of platform.bsp@lge.com, 2011-08-11 USB cable remove issue */
+		if(usb_cable_type == LT_CABLE_56K || usb_cable_type == LT_CABLE_130K)
+		{
+			bmaxpow = 1600;
+			//kiwone.seo@lge.com,2011-05-07, the current is not pull from LT in idle status. 
+			// suspended=1, and configured=0 so, the current is set 0mA in below, so we return in case of LT.
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+			set_ext_cable_type_value(NO_INIT_CABLE,usb_cable_type);
+#endif			
+			return bmaxpow;
+		}
+		else if(usb_cable_type == USB_CABLE_400MA)
+			bmaxpow = 450;		
+		else if(usb_cable_type == USB_CABLE_DTC_500MA)
+			bmaxpow = 500;
+		else if(usb_cable_type == ABNORMAL_USB_CABLE_400MA)
+			bmaxpow = 450; 		
+		pr_err("====%s: usb_cable_type=%d,maxpower=%d\n", __func__,usb_cable_type,bmaxpow);
+		
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+		set_ext_cable_type_value(NO_INIT_CABLE,usb_cable_type);
+#endif
+
+#ifdef CONFIG_LGE_HALLIC_CARKIT
+		if( (usb_cable_type == USB_CABLE_DTC_500MA) )
+			hall_ic_dock_report_event(1);
+#endif
+	}
+
+#else
 	if (temp == USB_CHG_TYPE__WALLCHARGER)
 		return USB_WALLCHARGER_CHG_CURRENT;
+#endif
+
+#ifdef CONFIG_LGE_MHL_SII9244
+    mhl_pwron_request();
+#endif
+#ifdef CONFIG_LGE_PM_CURRENT_CABLE_TYPE
+	/* kiwone.seo@lge.com, we must charge the phone although the cable is not configured,*/
+	if (suspended || !configured)
+		return 450;
+#else
 
 	if (suspended || !configured)
 		return 0;
+#endif	
 
 	return bmaxpow;
 }
@@ -1432,6 +2030,12 @@ static void usb_reset(struct usb_info *ui)
 	flush_endpoint(&ui->ep0out);
 	flush_endpoint(&ui->ep0in);
 
+#ifdef CONFIG_USB_G_LGE_ANDROID_FACTORY
+    /* detect usb id */
+    msleep(200);
+    usb_id_detect(ui);
+#endif
+
 	/* enable interrupts */
 	writel(STS_URI | STS_SLI | STS_UI | STS_PCI, USB_USBINTR);
 
@@ -1468,6 +2072,47 @@ static int usb_free(struct usb_info *ui, int ret)
 	return ret;
 }
 
+#ifdef CONFIG_USB_G_LGE_ANDROID_FACTORY
+extern int msm_hsusb_ldo_set_3p5(acc_cable_type usb_cable_type);
+extern int android_bind_factory(acc_cable_type usb_cable_type);
+
+static void usb_id_detect(struct usb_info *ui)
+{
+    acc_cable_type cable_type;
+    unsigned tmp;
+
+    cable_type = get_usb_cable_type();
+    pr_info("%s: cable_type = %d\n", __func__, cable_type);
+    msm_hsusb_ldo_set_3p5(cable_type);
+
+	switch (cable_type)
+	{
+		case LT_CABLE_56K:
+            pr_info("%s: LT_CABLE_56K\n", __func__);
+            tmp = otg_io_read(ui->xceiv, 0x04);
+            tmp |= 0x4;
+            otg_io_write(ui->xceiv, tmp, 0x04);
+            writel(readl(USB_PORTSC) | (1<<24), USB_PORTSC);
+            otg_io_write(ui->xceiv, 0x0A, 0x0F);
+            otg_io_write(ui->xceiv, 0x0A, 0x12);
+            break;
+
+        case LT_CABLE_130K:
+            pr_info("%s: LT_CABLE_130K\n", __func__);
+            writel(readl(USB_PORTSC) & ~(1<<24), USB_PORTSC);
+            otg_io_write(ui->xceiv, 0x0A, 0x0F);
+            otg_io_write(ui->xceiv, 0x0A, 0x12);
+            break;
+
+        default:
+            writel(readl(USB_PORTSC) & ~(1<<24), USB_PORTSC);
+			break;
+	}
+
+    android_bind_factory(cable_type);
+}
+#endif
+
 static void usb_do_work_check_vbus(struct usb_info *ui)
 {
 	unsigned long iflags;
@@ -1479,6 +2124,27 @@ static void usb_do_work_check_vbus(struct usb_info *ui)
 		ui->flags |= USB_FLAG_VBUS_OFFLINE;
 	spin_unlock_irqrestore(&ui->lock, iflags);
 }
+#ifdef CONFIG_LGE_MHL_SII9244
+int check_usb_online(void)
+{
+  return is_usb_online(the_usb_info);
+}
+EXPORT_SYMBOL(check_usb_online);
+#endif
+
+#ifdef CONFIG_USB_G_LGE_ANDROID
+int check_usb_chg_type(void)
+{
+    struct usb_info *ui = the_usb_info;
+    enum chg_type temp = USB_CHG_TYPE__INVALID;
+
+    if (is_usb_online(ui) && atomic_read(&ui->running))
+        temp = usb_get_chg_type(ui);
+
+    return temp;
+}
+EXPORT_SYMBOL(check_usb_chg_type);
+#endif
 
 static void usb_do_work(struct work_struct *w)
 {
@@ -1535,10 +2201,14 @@ static void usb_do_work(struct work_struct *w)
 				msm72k_pullup_internal(&ui->gadget, 1);
 
 				if (!ui->gadget.is_a_peripheral)
+				{
 					schedule_delayed_work(
 							&ui->chg_det,
 							USB_CHG_DET_DELAY);
-
+#ifdef  CONFIG_LGE_MHL_SII9244
+					mhl_delayed_pwron_request(MHL_PWRON_DELAY);
+#endif
+				}
 			}
 			break;
 		case USB_STATE_ONLINE:
@@ -1557,7 +2227,7 @@ static void usb_do_work(struct work_struct *w)
 				if (!ui->gadget.is_a_peripheral)
 					cancel_delayed_work_sync(&ui->chg_det);
 
-				dev_dbg(&ui->pdev->dev,
+				dev_info(&ui->pdev->dev,
 					"msm72k_udc: ONLINE -> OFFLINE\n");
 
 				atomic_set(&ui->running, 0);
@@ -1595,9 +2265,25 @@ static void usb_do_work(struct work_struct *w)
 					ui->irq = 0;
 				}
 
+#ifdef CONFIG_LGE_HALLIC_CARKIT
+				printk(KERN_INFO"%s: usb_cable_type :%d\n",__func__,usb_cable_type);
+//				if( (get_ext_cable_type_value() == TA_CABLE_DTC_800MA) || (get_ext_cable_type_value() == USB_CABLE_DTC_500MA) )
+				if( hall_ic_get_dock_state() == 1)
+					hall_ic_dock_report_event(0);
+#endif
 
 				switch_set_state(&ui->sdev, 0);
 
+#ifdef CONFIG_LGE_PM_CURRENT_CABLE_TYPE 
+				set_ext_cable_type_value(NO_INIT_CABLE,NO_INIT_CABLE);
+				pr_info("%s: external_cable_type_set_to_default\n", __func__);
+#endif
+#ifdef CONFIG_LGE_MHL_SII9244
+                if(!_vbus)
+                {
+				  mhl_pwroff_request_vbus_removed();
+				}
+#endif
 				ui->state = USB_STATE_OFFLINE;
 				usb_do_work_check_vbus(ui);
 				pm_runtime_put_noidle(&ui->pdev->dev);
@@ -1659,7 +2345,7 @@ static void usb_do_work(struct work_struct *w)
 
 				pm_runtime_get_noresume(&ui->pdev->dev);
 				pm_runtime_resume(&ui->pdev->dev);
-				dev_dbg(&ui->pdev->dev,
+				dev_info(&ui->pdev->dev,
 					"msm72k_udc: OFFLINE -> ONLINE\n");
 
 				usb_reset(ui);
@@ -1680,14 +2366,23 @@ static void usb_do_work(struct work_struct *w)
 				ui->irq = otg->irq;
 				enable_irq_wake(otg->irq);
 
+#ifdef CONFIG_USB_G_LGE_ANDROID
+                if (android_charge_only())
+                    atomic_set(&ui->softconnect, 1);
+#endif
 				if (!atomic_read(&ui->softconnect))
 					break;
 				msm72k_pullup_internal(&ui->gadget, 1);
 
 				if (!ui->gadget.is_a_peripheral)
+				{
 					schedule_delayed_work(
 							&ui->chg_det,
 							USB_CHG_DET_DELAY);
+#ifdef  CONFIG_LGE_MHL_SII9244
+					mhl_delayed_pwron_request(MHL_PWRON_DELAY);
+#endif
+				}
 			}
 			break;
 		}
@@ -2294,7 +2989,15 @@ static int msm72k_pullup(struct usb_gadget *_gadget, int is_active)
 {
 	struct usb_info *ui = container_of(_gadget, struct usb_info, gadget);
 	unsigned long flags;
+#ifdef CONFIG_USB_G_LGE_ANDROID
+    struct msm_otg *otg = to_msm_otg(ui->xceiv);
 
+    if (atomic_read(&otg->chg_type) == USB_CHG_TYPE__WALLCHARGER)
+    {
+        pr_info("%s: WALLCHARGER is connected. ignore it\n", __func__);
+        return 0;
+    }
+#endif
 
 	atomic_set(&ui->softconnect, is_active);
 
@@ -2308,7 +3011,12 @@ static int msm72k_pullup(struct usb_gadget *_gadget, int is_active)
 	msm72k_pullup_internal(_gadget, is_active);
 
 	if (is_active && !ui->gadget.is_a_peripheral)
+	{
 		schedule_delayed_work(&ui->chg_det, USB_CHG_DET_DELAY);
+#ifdef  CONFIG_LGE_MHL_SII9244
+		mhl_delayed_pwron_request(MHL_PWRON_DELAY);
+#endif
+	}
 
 	return 0;
 }
@@ -2597,6 +3305,10 @@ static int msm72k_probe(struct platform_device *pdev)
 
 	wake_lock_init(&ui->wlock,
 			WAKE_LOCK_SUSPEND, "usb_bus_active");
+
+#ifdef CONFIG_LGE_PM
+    wake_lock_init(&acc_wake_lock, WAKE_LOCK_SUSPEND, "usb_acc");
+#endif
 
 	usb_debugfs_init(ui);
 

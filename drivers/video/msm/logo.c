@@ -28,6 +28,15 @@
 #define fb_height(fb)	((fb)->var.yres)
 #define fb_size(fb)	((fb)->var.xres * (fb)->var.yres * 2)
 
+#ifdef CONFIG_LGE_I_DISP_BOOTLOGO	
+void memset32(uint32_t* dst, uint32_t value, size_t size)
+{
+    size >>= 2;
+    while (size--) {
+        *dst++ = value;
+    }
+}
+#else
 static void memset16(void *_ptr, unsigned short val, unsigned count)
 {
 	unsigned short *ptr = _ptr;
@@ -35,6 +44,7 @@ static void memset16(void *_ptr, unsigned short val, unsigned count)
 	while (count--)
 		*ptr++ = val;
 }
+#endif
 
 /* 565RLE image format: [count(2 bytes), rle(2 bytes)] */
 int load_565rle_image(char *filename)
@@ -43,6 +53,10 @@ int load_565rle_image(char *filename)
 	int fd, count, err = 0;
 	unsigned max;
 	unsigned short *data, *bits, *ptr;
+
+#ifdef CONFIG_LGE_I_DISP_BOOTLOGO
+	uint32_t value, red, green, blue, alpha;
+#endif
 
 	info = registered_fb[0];
 	if (!info) {
@@ -81,11 +95,27 @@ int load_565rle_image(char *filename)
 		unsigned n = ptr[0];
 		if (n > max)
 			break;
+#ifdef CONFIG_LGE_I_DISP_BOOTLOGO
+		value = ((ptr[1] >> 11) & 0x1F);
+		red = (value << 3) | (value >> 2);
+		value = ((ptr[1] >> 5) & 0x3F);
+		green = (value << 2) | (value >> 4);
+		value = (ptr[1] & 0x1F);
+		blue = (value << 3) | (value >> 2);
+		alpha = 0xff;
+		value = (alpha << 24) | (blue << 16)| (green << 8) | (red);
+		memset32((uint32_t *)bits, value, n << 2);
+		bits += (n*2);
+        max -= n;
+        ptr += 2;
+        count -= 4;
+#else
 		memset16(bits, ptr[1], n << 1);
 		bits += n;
 		max -= n;
 		ptr += 2;
 		count -= 4;
+#endif		
 	}
 
 err_logo_free_data:

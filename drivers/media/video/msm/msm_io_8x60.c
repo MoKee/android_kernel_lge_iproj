@@ -73,7 +73,7 @@
 #define	MIPI_PHY_D0_CONTROL_HS_REC_EQ_SHFT				0x1c
 #define	MIPI_PHY_D1_CONTROL_MIPI_CLK_PHY_SHUTDOWNB_SHFT		0x9
 #define	MIPI_PHY_D1_CONTROL_MIPI_DATA_PHY_SHUTDOWNB_SHFT	0x8
-#define	DBG_CSI	0
+#define	DBG_CSI	1
 
 static struct clk *camio_cam_clk;
 static struct clk *camio_vfe_clk;
@@ -92,9 +92,13 @@ static struct clk *camio_vpe_pclk;
 static struct regulator *fs_vfe;
 static struct regulator *fs_ijpeg;
 static struct regulator *fs_vpe;
+// Start LGE_BSP_CAMERA::john.park@lge.com 2011-06-03  separation of camera power
+#if !defined(CONFIG_LGE_CAMERA)
 static struct regulator *ldo15;
 static struct regulator *lvs0;
 static struct regulator *ldo25;
+#endif
+// End LGE_BSP_CAMERA::john.park@lge.com 2011-06-03  separation of camera power
 
 static struct msm_camera_io_ext camio_ext;
 static struct msm_camera_io_clk camio_clk;
@@ -182,6 +186,22 @@ void msm_io_memcpy(void __iomem *dest_addr, void __iomem *src_addr, u32 len)
 
 static void msm_camera_vreg_enable(void)
 {
+//Start to seperate main/vt camera power jisun.shin@lge.com 2011.06.01.
+#ifdef CONFIG_LGE_CAMERA
+	printk("%s: \n", __func__);
+
+	fs_vfe = regulator_get(NULL, "fs_vfe");
+	if (IS_ERR(fs_vfe)) {
+		CDBG("%s: Regulator FS_VFE get failed %ld\n", __func__,
+			PTR_ERR(fs_vfe));
+		fs_vfe = NULL;
+	} else if (regulator_enable(fs_vfe)) {
+		CDBG("%s: Regulator FS_VFE enable failed\n", __func__);
+		regulator_put(fs_vfe);
+	}
+	return;
+	
+#else
 	ldo15 = regulator_get(NULL, "8058_l15");
 	if (IS_ERR(ldo15)) {
 		pr_err("%s: VREG LDO15 get failed\n", __func__);
@@ -246,10 +266,21 @@ ldo15_disable:
 	regulator_disable(ldo15);
 ldo15_put:
 	regulator_put(ldo15);
+#endif
+//End to seperate main/vt camera power jisun.shin@lge.com 2011.06.01.
 }
 
 static void msm_camera_vreg_disable(void)
 {
+//Start to seperate main/vt camera power jisun.shin@lge.com 2011.06.01.
+#ifdef CONFIG_LGE_CAMERA
+	printk("%s: \n", __func__);
+
+	if (fs_vfe) {
+		regulator_disable(fs_vfe);
+		regulator_put(fs_vfe);
+	}
+#else
 	if (ldo15) {
 		regulator_disable(ldo15);
 		regulator_put(ldo15);
@@ -269,6 +300,8 @@ static void msm_camera_vreg_disable(void)
 		regulator_disable(fs_vfe);
 		regulator_put(fs_vfe);
 	}
+#endif
+//End to seperate main/vt camera power jisun.shin@lge.com 2011.06.01.
 }
 
 int msm_camio_clk_enable(enum msm_camio_clk_type clktype)
@@ -463,7 +496,7 @@ static irqreturn_t msm_io_csi_irq(int irq_num, void *data)
 	uint32_t irq = 0;
 	if (csibase != NULL)
 		irq = msm_io_r(csibase + MIPI_INTERRUPT_STATUS);
-	CDBG("%s MIPI_INTERRUPT_STATUS = 0x%x\n", __func__, irq);
+	printk("%s MIPI_INTERRUPT_STATUS = 0x%x\n", __func__, irq);
 	if (csibase != NULL)
 		msm_io_w(irq, csibase + MIPI_INTERRUPT_STATUS);
 	return IRQ_HANDLED;
@@ -683,7 +716,18 @@ int msm_camio_sensor_clk_on(struct platform_device *pdev)
 	rc = camdev->camera_gpio_on();
 	if (rc < 0)
 		return rc;
+
+// LGE_DOM_UPDATE_S john.park 2011/1/06 {
+// for mclk is still alive while front camera working.
+    if( !strcmp(sinfo->sensor_name,"mt9m114") ) {
+      printk("%s[clk should not be enable]: \n", __func__);
+      return rc;
+    } else {
+      printk("[CAMERA]: %s[clk should be enable]: \n", __func__);
 	return msm_camio_clk_enable(CAMIO_CAM_MCLK_CLK);
+    }
+// LGE_DOM_UPDATE_S john.park 2011/1/06 }      
+//     return msm_camio_clk_enable(CAMIO_CAM_MCLK_CLK);
 }
 
 int msm_camio_sensor_clk_off(struct platform_device *pdev)
@@ -692,7 +736,13 @@ int msm_camio_sensor_clk_off(struct platform_device *pdev)
 	struct msm_camera_device_platform_data *camdev = sinfo->pdata;
 	msm_camera_vreg_disable();
 	camdev->camera_gpio_off();
+    if( !strcmp(sinfo->sensor_name,"mt9m114") ) {
+      printk("%s[clk should not be disable]: \n", __func__);
+      return 0;
+    } else {
+      printk("[CAMERA]: %s[clk should be disable]: \n", __func__);
 	return msm_camio_clk_disable(CAMIO_CAM_MCLK_CLK);
+    }	
 
 }
 

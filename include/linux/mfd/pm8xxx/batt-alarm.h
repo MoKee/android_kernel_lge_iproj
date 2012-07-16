@@ -161,6 +161,11 @@ int pm8xxx_batt_alarm_hold_time_set(enum pm8xxx_batt_alarm_hold_time hold_time);
  */
 int pm8xxx_batt_alarm_pwm_rate_set(int use_pwm, int clock_scaler,
 				   int clock_divider);
+
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+int pm8xxx_batt_alarm_config_lge(void);
+#endif
+
 #else
 
 static inline int

@@ -353,6 +353,28 @@ void gsdio_rx_push(struct work_struct *w)
 		list_del(&req->list);
 		port->rq_len--;
 
+#ifdef CONFIG_USB_G_LGE_ANDROID
+        if (port->port_num == 0) /* modem */
+        {
+            char *packet = req->buf;
+            unsigned size = req->actual;
+            unsigned n = port->n_read;;
+
+            if (n)
+            {
+                packet += n;
+                size -= n;
+            }
+
+            ret = 0;
+            if (!atcmd_queue(packet, size)) /* ATCMD_TO_CP */
+            {
+                ret = gsdio_write(port, req);
+            }
+        }
+        else
+#endif
+
 		ret = gsdio_write(port, req);
 		/* as gsdio_write drops spin_lock while writing data
 		 * to sdio usb cable may have been disconnected
@@ -958,6 +980,12 @@ int gsdio_connect(struct gserial *gser, u8 portno)
 			gser->send_modem_ctrl_bits(gser, port->cbits_to_laptop);
 	}
 
+#ifdef CONFIG_USB_G_LGE_ANDROID
+    if (port->port_num == 0) {
+        atcmd_connect(port);
+    }
+#endif
+
 	return 0;
 }
 
@@ -1002,6 +1030,12 @@ void gsdio_disconnect(struct gserial *gser, u8 portno)
 	port->rq_len = 0;
 	port->wp_len = 0;
 	port->n_read = 0;
+
+#ifdef CONFIG_USB_G_LGE_ANDROID
+        if (port->port_num == 0) {
+            atcmd_disconnect();
+        }
+#endif
 	spin_unlock_irqrestore(&port->port_lock, flags);
 }
 
@@ -1140,7 +1174,7 @@ int gsdio_setup(struct usb_gadget *g, unsigned count)
 			goto free_sdio_ports;
 		}
 
-#ifdef DEBUG
+#if 0//def DEBUG
 		/* REVISIT: create one file per port
 		 * or do not create any file
 		 */

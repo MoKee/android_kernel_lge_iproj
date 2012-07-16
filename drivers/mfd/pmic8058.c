@@ -728,8 +728,11 @@ static int __devinit pm8058_probe(struct platform_device *pdev)
 		pr_err("Cannot add subdevices rc=%d\n", rc);
 		goto err;
 	}
-
+#ifdef CONFIG_LGE_PM //platform-bsp@lge.com : reboot when hard-reset
+	rc = pm8xxx_hard_reset_config(PM8XXX_RESTART_ON_HARD_RESET);
+#else
 	rc = pm8xxx_hard_reset_config(PM8XXX_SHUTDOWN_ON_HARD_RESET);
+#endif
 	if (rc < 0)
 		pr_err("%s: failed to config shutdown on hard reset: %d\n",
 								__func__, rc);

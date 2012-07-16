@@ -258,8 +258,7 @@ struct dasd_eckd_characteristics {
 	__u16 first_alt_trk;
 	__u16 no_alt_trk;
 	__u16 first_dia_trk;
-	__u16 no_dia_trk;
-	__u16 first_sup_trk;
+	__u16 no_dia_trk;	__u16 first_sup_trk;
 	__u16 no_sup_trk;
 	__u8 MDR_ID;
 	__u8 OBR_ID;

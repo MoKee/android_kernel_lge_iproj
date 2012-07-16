@@ -26,7 +26,13 @@ obj-$(CONFIG_SND_SOC_MSM8X60_DAI) += snd-soc-msm8x60-dai.o
 snd-soc-msm8x60-pcm-objs := msm8x60-pcm.o
 obj-$(CONFIG_SND_SOC_MSM8X60_PCM) += snd-soc-msm8x60-pcm.o
 
+ifeq ($(TARGET_PRODUCT),i_skt)
+snd-soc-msm8x60-objs := msm8x60_domestic.o
+else ifeq ($(TARGET_PRODUCT),i_lgu)
+snd-soc-msm8x60-objs := msm8x60_domestic.o
+else
 snd-soc-msm8x60-objs := msm8x60.o
+endif 
 obj-$(CONFIG_SND_SOC_MSM8X60) += snd-soc-msm8x60.o
 
 

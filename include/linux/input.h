@@ -438,6 +438,10 @@ struct input_keymap_entry {
 #define KEY_WIMAX		246
 #define KEY_RFKILL		247	/* Key that controls all radios */
 
+#define KEY_VIDEO_CALL		254	/* Key For Vedio CAll*/
+
+#define KEY_PWR_OFF_CHG_REBOOT		500  /* [LGE_UPDATE - PowerOff CHG] */
+
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
 #define BTN_MISC		0x100
@@ -658,6 +662,9 @@ struct input_keymap_entry {
 #define KEY_NUMERIC_9		0x209
 #define KEY_NUMERIC_STAR	0x20a
 #define KEY_NUMERIC_POUND	0x20b
+//20110826 - edward.park@lge.com : Pattern Unlock [START]
+#define KEY_PTN_UNLOCK		0x2fd
+//20110826 - edward.park@lge.com : Pattern Unlock [END]
 #define KEY_CAMERA_SNAPSHOT	0x2fe
 #define KEY_CAMERA_FOCUS	0x210
 #define KEY_WPS_BUTTON		0x211	/* WiFi Protected Setup key */
@@ -1473,9 +1480,14 @@ int input_flush_device(struct input_handle *handle, struct file *file);
 void input_event(struct input_dev *dev, unsigned int type, unsigned int code, int value);
 void input_inject_event(struct input_handle *handle, unsigned int type, unsigned int code, int value);
 
+extern int LGF_TestModeGetDisableInputDevices(void);
+
 static inline void input_report_key(struct input_dev *dev, unsigned int code, int value)
 {
-	input_event(dev, EV_KEY, code, !!value);
+	if(LGF_TestModeGetDisableInputDevices())
+		;
+	else
+        input_event(dev, EV_KEY, code, value);
 }
 
 static inline void input_report_rel(struct input_dev *dev, unsigned int code, int value)
@@ -1485,6 +1497,9 @@ static inline void input_report_rel(struct input_dev *dev, unsigned int code, in
 
 static inline void input_report_abs(struct input_dev *dev, unsigned int code, int value)
 {
+	if(LGF_TestModeGetDisableInputDevices())
+		;
+	else
 	input_event(dev, EV_ABS, code, value);
 }
 
@@ -1500,11 +1515,17 @@ static inline void input_report_switch(struct input_dev *dev, unsigned int code,
 
 static inline void input_sync(struct input_dev *dev)
 {
+	if(LGF_TestModeGetDisableInputDevices())
+		;
+	else
 	input_event(dev, EV_SYN, SYN_REPORT, 0);
 }
 
 static inline void input_mt_sync(struct input_dev *dev)
 {
+	if(LGF_TestModeGetDisableInputDevices())
+		;
+	else
 	input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
 }
 

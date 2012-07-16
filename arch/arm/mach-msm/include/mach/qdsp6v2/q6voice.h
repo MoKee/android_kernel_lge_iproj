@@ -519,6 +519,9 @@ struct cvs_start_record_cmd {
 #define VSS_NETWORK_ID_VOIP_NB				0x00011240
 #define VSS_NETWORK_ID_VOIP_WB				0x00011241
 #define VSS_NETWORK_ID_VOIP_WV				0x00011242
+// MVS Loopback Porting [Start]
+#define VSS_NETWORK_ID_GSM_NB				0x00010023
+//MVS Loopback Porting [End]
 
 /* Media types */
 #define VSS_MEDIA_ID_13K_MODEM		0x00010FC1
@@ -690,6 +693,7 @@ struct incall_music_info {
 	uint32_t playing;
 };
 
+#if !defined (CONFIG_MACH_LGE_I_BOARD_LGU) && !defined (CONFIG_MACH_LGE_I_BOARD_SKT)
 struct voice_data {
 	int voc_state;/*INIT, CHANGE, RELEASE, RUN */
 
@@ -757,6 +761,71 @@ struct common_data {
 
 	struct voice_data voice[MAX_VOC_SESSIONS];
 };
+#else
+struct voice_data {
+	int voc_state;/*INIT, CHANGE, RELEASE, RUN */
+	uint32_t voc_path;
+	uint32_t adsp_version;
+
+	wait_queue_head_t mvm_wait;
+	wait_queue_head_t cvs_wait;
+	wait_queue_head_t cvp_wait;
+
+	uint32_t device_events;
+
+	/* cache the values related to Rx and Tx */
+	struct device_data dev_rx;
+	struct device_data dev_tx;
+
+	/* these default values are for all devices */
+	uint32_t default_mute_val;
+	uint32_t default_vol_val;
+	uint32_t default_sample_val;
+
+	/* call status */
+	int v_call_status; /* Start or End */
+
+	/* APR to MVM in the modem */
+	void *apr_mvm;
+	/* APR to CVS in the modem */
+	void *apr_cvs;
+	/* APR to CVP in the modem */
+	void *apr_cvp;
+
+	/* APR to MVM in the Q6 */
+	void *apr_q6_mvm;
+	/* APR to CVS in the Q6 */
+	void *apr_q6_cvs;
+	/* APR to CVP in the Q6 */
+	void *apr_q6_cvp;
+
+	u32 mvm_state;
+	u32 cvs_state;
+	u32 cvp_state;
+
+	/* Handle to MVM in the modem */
+	u16 mvm_handle;
+	/* Handle to CVS in the modem */
+	u16 cvs_handle;
+	/* Handle to CVP in the modem */
+	u16 cvp_handle;
+
+	/* Handle to MVM in the Q6 */
+	u16 mvm_q6_handle;
+	/* Handle to CVS in the Q6 */
+	u16 cvs_q6_handle;
+	/* Handle to CVP in the Q6 */
+	u16 cvp_q6_handle;
+
+	struct mutex lock;
+
+	struct mvs_driver_info mvs_info;
+
+	struct incall_rec_info rec_info;
+
+	struct incall_music_info music_info;
+};
+#endif
 
 int voice_set_voc_path_full(uint32_t set);
 
@@ -774,5 +843,7 @@ int voice_start_record(uint32_t rec_mode, uint32_t set);
 
 int voice_start_playback(uint32_t set);
 
+#if !defined (CONFIG_MACH_LGE_I_BOARD_LGU) && !defined (CONFIG_MACH_LGE_I_BOARD_SKT)
 u16 voice_get_session_id(const char *name);
+#endif
 #endif

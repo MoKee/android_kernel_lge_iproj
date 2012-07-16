@@ -872,6 +872,9 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 	req->length = 0;
 	gadget->ep0->driver_data = cdev;
 
+	pr_debug("[BSP-USB][%s] bRequest:0x%x bRequestType:0x%x w_value:0x%x w_index:0x%x\n",
+		__func__, ctrl->bRequest, ctrl->bRequestType, w_value>>8, w_index);
+
 	switch (ctrl->bRequest) {
 
 	/* we handle all standard USB descriptors */

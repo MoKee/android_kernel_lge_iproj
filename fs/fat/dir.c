@@ -98,8 +98,11 @@ next:
 
 	*bh = sb_bread(sb, phys);
 	if (*bh == NULL) {
+/* byongdoo.oh@lge.com remove error message at pulling sd card without unmount */
+#ifdef LGE_REMOVE_ERROR
 		fat_msg(sb, KERN_ERR, "Directory bread(block %llu) failed",
 		       (llu)phys);
+#endif
 		/* skip this block */
 		*pos = (iblock + 1) << sb->s_blocksize_bits;
 		goto next;

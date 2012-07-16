@@ -1083,7 +1083,12 @@ void mmc_power_up(struct mmc_host *host)
 	 * This delay should be sufficient to allow the power supply
 	 * to reach the minimum voltage.
 	 */
+#ifdef CONFIG_MACH_LGE_I_BOARD
+        mmc_delay(20);
+#else
 	mmc_delay(10);
+#endif	 
+
 
 	host->ios.clock = host->f_init;
 
@@ -1094,7 +1099,11 @@ void mmc_power_up(struct mmc_host *host)
 	 * This delay must be at least 74 clock sizes, or 1 ms, or the
 	 * time required to reach a stable voltage.
 	 */
+#ifdef CONFIG_MACH_LGE_I_BOARD
+        mmc_delay(20);
+#else
 	mmc_delay(10);
+#endif
 
 	mmc_host_clk_release(host);
 }

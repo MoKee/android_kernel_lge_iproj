@@ -67,6 +67,13 @@ int pmic8058_set_charge_batt(int);
  * RETURNS: The pmic internal state, or error otherwise
  */
 enum pmic8058_chg_state pmic8058_get_fsm_state(void);
+
+#ifdef CONFIG_LGE_PM
+int is_chg_plugged_in(void);
+#endif
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+int batt_state_mvolts(void);
+#endif
 #else
 int pmic8058_get_charge_batt(void)
 {

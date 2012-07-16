@@ -29,6 +29,9 @@
 
 #include <mach/board.h>
 
+//QCT kernel IO read patch for checking register corruption
+// #define QCT_IO_READ_ONLY_PATCH
+
 #define MSM_CHIP_DEVICE(name, chip) { \
 		.virtual = (unsigned long) MSM_##name##_BASE, \
 		.pfn = __phys_to_pfn(chip##_##name##_PHYS), \
@@ -151,6 +154,21 @@ static struct map_desc msm8x60_io_desc[] __initdata = {
 	MSM_DEVICE(MMSS_CLK_CTL),
 	MSM_DEVICE(LPASS_CLK_CTL),
 	MSM_DEVICE(TCSR),
+	
+#ifdef QCT_IO_READ_ONLY_PATCH
+	MSM_DEVICE(GFX2D0),       
+	MSM_DEVICE(GFX2D1),       
+	MSM_DEVICE(GFX3D),        
+	MSM_DEVICE(MFC),          
+	MSM_DEVICE(VFE),          
+	MSM_DEVICE(MIPI_DSI),     
+	MSM_DEVICE(MIPI_CSI0),    
+	MSM_DEVICE(ROT),          
+	MSM_DEVICE(MDP),          
+	MSM_DEVICE(VPE),          
+	MSM_DEVICE(MMSS_SFPB_CFG),
+#endif
+
 	MSM_DEVICE(IMEM),
 	MSM_DEVICE(HDMI),
 #ifdef CONFIG_DEBUG_MSM8660_UART
@@ -389,9 +407,46 @@ void __init msm_map_msm9615_io(void)
 }
 #endif /* CONFIG_ARCH_MSM9615 */
 
+#ifdef QCT_IO_READ_ONLY_PATCH
+struct mm_map_s {                                                                               
+	char *name;                                                                              
+	void *virt;                                                                              
+	u32 phys;                                                                                
+	u32 size;                                                                                
+	void *ioaddr;                                                                            
+	u32 pattern;                                                                             
+};                                                                                              
+                                                                                                
+struct mm_map_s mm_map[] = {                                                                    
+	{"gfx_2d0", MSM_GFX2D0_BASE, MSM_GFX2D0_PHYS, MSM_GFX2D0_SIZE, 0x0, 0xDEADBEEF},         
+	{"gfx_2d1", MSM_GFX2D1_BASE, MSM_GFX2D1_PHYS, MSM_GFX2D1_SIZE, 0x0, 0xBEEFDEAD},         
+	{"gfx_3d", MSM_GFX3D_BASE, MSM_GFX3D_PHYS, MSM_GFX3D_SIZE, 0x0, 0xABABABAB},             
+	{"mfc", MSM_MFC_BASE, MSM_MFC_PHYS, MSM_MFC_SIZE, 0x0, 0xCAFEBEEF},                      
+	{"vfe", MSM_VFE_BASE, MSM_VFE_PHYS, MSM_VFE_SIZE, 0x0, 0xBEEFCAFE},                      
+	                                                                                         
+	{"mipi_dsi", MSM_MIPI_DSI_BASE, MSM_MIPI_DSI_PHYS, MSM_MIPI_DSI_SIZE, 0x0,               
+		0xDEADCAFE},                                                                     
+	                                                                                         
+	{"mipi_csi0", MSM_MIPI_CSI0_BASE, MSM_MIPI_CSI0_PHYS, MSM_MIPI_CSI0_SIZE, 0x0,           
+		0xCAFEDEAD},                                                                     
+                                                                                                
+	{"rot", MSM_ROT_BASE, MSM_ROT_PHYS, MSM_ROT_SIZE, 0x0, 0x55555555},                      
+	{"mdp", MSM_MDP_BASE, MSM_MDP_PHYS, MSM_MDP_SIZE, 0x0, 0xAAAAAAAA},                      
+	{"vpe", MSM_VPE_BASE, MSM_VPE_PHYS, MSM_VPE_SIZE, 0x0, 0x00000000},                      
+                                                                                                
+	{"mmss_sfpb_cfg", MSM_MMSS_SFPB_CFG_BASE, MSM_MMSS_SFPB_CFG_PHYS, MSM_MMSS_SFPB_CFG_SIZE,
+		0x0, 0xFEEDDEAD},                                                                
+};                                                                                              
+#endif
+
 void __iomem *
 __msm_ioremap(unsigned long phys_addr, size_t size, unsigned int mtype)
 {
+#ifdef QCT_IO_READ_ONLY_PATCH
+	u32 offset = (phys_addr & 0x000FFFFF);
+	u32 i;								  
+#endif
+
 	if (mtype == MT_DEVICE) {
 		/* The peripherals in the 88000000 - F0000000 range
 		 * are only accessable by type MT_DEVICE_NONSHARED.
@@ -401,6 +456,39 @@ __msm_ioremap(unsigned long phys_addr, size_t size, unsigned int mtype)
 			mtype = MT_DEVICE_NONSHARED;
 	}
 
+#ifdef QCT_IO_READ_ONLY_PATCH
+	for (i = 0; i < ARRAY_SIZE(mm_map); i++) {												 
+		if(mm_map[i].phys == (phys_addr & 0xFFF00000)) {								 
+																					 
+			/* Allow the ioremap to happen, but mark the mapped range as			 
+			   read-only. We can't keep doing this, since the kernel doesn't		 
+			   seem to want to re-use the same mapping, so just do it once. */		 
+			if (!mm_map[i].ioaddr) {												 
+				mm_map[i].ioaddr =												 
+					__arm_ioremap(phys_addr, size, MT_MEMORY_RX);			 
+				pr_err("Mapped memory for %s, range: %p -- %p\n", mm_map[i].name,
+					mm_map[i].ioaddr, mm_map[i].ioaddr + mm_map[i].size);	 
+			}																		 
+			return mm_map[i].virt + offset; 										 
+		}																				 
+	}																						 
+#endif
+	
 	return __arm_ioremap(phys_addr, size, mtype);
 }
 EXPORT_SYMBOL(__msm_ioremap);
+
+#ifdef QCT_IO_READ_ONLY_PATCH
+void __msm_iounmap(volatile void __iomem *io_addr)                           
+{                                                                            
+	u32 i;                                                                
+	for (i = 0; i < ARRAY_SIZE(mm_map); i++) {                            
+		if((io_addr >= mm_map[i].virt) && (io_addr < (mm_map[i].virt +
+			mm_map[i].size))) {                                   
+			return;                                               
+		}                                                             
+	}                                                                     
+	__iounmap(io_addr);                                                   
+}                                                                            
+EXPORT_SYMBOL(__msm_iounmap);                                                
+#endif

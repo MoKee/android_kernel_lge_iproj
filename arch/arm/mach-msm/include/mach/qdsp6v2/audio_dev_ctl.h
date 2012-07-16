@@ -133,7 +133,9 @@ union msm_vol_mute {
 struct auddev_evt_voc_mute_info {
 	u32 dev_type;
 	u32 acdb_dev_id;
+#if !defined (CONFIG_MACH_LGE_I_BOARD_LGU) && !defined (CONFIG_MACH_LGE_I_BOARD_SKT)
 	u32 voice_session_id;
+#endif
 	union msm_vol_mute dev_vm_val;
 };
 
@@ -151,7 +153,9 @@ union auddev_evt_data {
 	s32 session_vol;
 	s32 voice_state;
 	struct auddev_evt_audcal_info audcal_info;
+#if !defined (CONFIG_MACH_LGE_I_BOARD_LGU) && !defined (CONFIG_MACH_LGE_I_BOARD_SKT)
 	u32 voice_session_id;
+#endif
 };
 
 struct message_header {
@@ -212,8 +216,13 @@ int msm_snddev_withdraw_freq(u32 session_id,
 int msm_device_is_voice(int dev_id);
 int msm_get_voc_freq(int *tx_freq, int *rx_freq);
 int msm_snddev_get_enc_freq(int session_id);
+#if !defined (CONFIG_MACH_LGE_I_BOARD_LGU) && !defined (CONFIG_MACH_LGE_I_BOARD_SKT)
 int msm_set_voice_vol(int dir, s32 volume, u32 session_id);
 int msm_set_voice_mute(int dir, int mute, u32 session_id);
+#else
+int msm_set_voice_vol(int dir, s32 volume);
+int msm_set_voice_mute(int dir, int mute);
+#endif
 int msm_get_voice_state(void);
 int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
 				int channel_mode);

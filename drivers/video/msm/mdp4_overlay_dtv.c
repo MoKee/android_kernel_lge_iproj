@@ -238,7 +238,7 @@ int mdp4_dtv_on(struct platform_device *pdev)
 	if (ret != 0)
 		dev_warn(&pdev->dev, "mdp4_overlay_dtv: panel_next_on failed");
 
-	dev_info(&pdev->dev, "mdp4_overlay_dtv: on");
+	dev_info(&pdev->dev, "mdp4_overlay_dtv: on \n");
 
 	return ret;
 }
@@ -261,7 +261,7 @@ int mdp4_dtv_off(struct platform_device *pdev)
 
 	ret = panel_next_off(pdev);
 
-	dev_info(&pdev->dev, "mdp4_overlay_dtv: off");
+	dev_info(&pdev->dev, "mdp4_overlay_dtv: off \n");
 	return ret;
 }
 
@@ -469,7 +469,7 @@ static void mdp4_overlay_dtv_wait4_ov_done(struct msm_fb_data_type *mfd,
 void mdp4_overlay_dtv_ov_done_push(struct msm_fb_data_type *mfd,
 			struct mdp4_overlay_pipe *pipe)
 {
-	mdp4_overlay_reg_flush(pipe, 0);
+ 	mdp4_overlay_reg_flush(pipe, 1);
 	mdp4_overlay_dtv_ov_start(mfd);
 
 	if (pipe->flags & MDP_OV_PLAY_NOWAIT)
@@ -593,11 +593,13 @@ static void mdp4_dtv_do_blt(struct msm_fb_data_type *mfd, int enable)
 
 void mdp4_dtv_overlay_blt_start(struct msm_fb_data_type *mfd)
 {
+	mdp4_allocate_writeback_buf(mfd, MDP4_MIXER1);
 	mdp4_dtv_do_blt(mfd, 1);
 }
 
 void mdp4_dtv_overlay_blt_stop(struct msm_fb_data_type *mfd)
 {
+	mdp4_free_writeback_buf(mfd, MDP4_MIXER1);
 	mdp4_dtv_do_blt(mfd, 0);
 }
 

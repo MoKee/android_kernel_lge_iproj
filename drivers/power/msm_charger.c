@@ -24,10 +24,23 @@
 #include <linux/time.h>
 #include <linux/slab.h>
 #include <linux/wakelock.h>
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+#include <linux/pmic8058-charger.h>
+#include <linux/mfd/pm8xxx/batt-alarm.h> 
+#endif
 
 #include <asm/atomic.h>
 
 #include <mach/msm_hsusb.h>
+
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+#include <linux/msm_adc.h>
+#include "../../lge/include/lg_power_common.h"
+#endif
+#ifdef CONFIG_LGE_PM_TEMPERATURE_MONITOR
+#include <linux/android_alarm.h>
+#endif
+
 
 #define MSM_CHG_MAX_EVENTS		16
 #define CHARGING_TEOC_MS		9000000
@@ -62,6 +75,40 @@ enum msm_battery_status {
 	BATT_STATUS_TEMPERATURE_OUT_OF_RANGE,
 };
 
+
+/* [LGE_UPDATE_S kyungho.kong@lge.com] */
+#ifdef CONFIG_LGE_PM_TEMPERATURE_MONITOR
+/* When we're awake or running on wall power, sample the battery
+ * gauge every FAST_POLL seconds.  If we're asleep and on battery
+ * power, sample every SLOW_POLL seconds
+ */
+#define TIME_POLL_0P5_MINUTE (1 * 30)
+#define TIME_POLL_1_MINUTE	(1 * 60)
+#define TIME_POLL_10_MINUTE (10 * 60)
+#define TIME_POLL_30_MINUTE (30 * 60)
+#define TIME_POLL_60_MINUTE (60 * 60)
+#define TIME_POLL_90_MINUTE (90 * 60)
+#endif
+/* [LGE_UPDATE_E kyungho.kong@lge.com] */
+
+#ifdef CONFIG_LGE_TOUCH_CHAGER_CTRL
+#include "../../include/linux/input/touch_synaptics.h"
+extern void trigger_baseline_state_machine(int plug_in);
+#endif
+#ifdef CONFIG_LGE_FUEL_GAUGE
+#define LGE_DEBUG
+#if !defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+extern int usb_chg_type_for_FG;
+#else
+extern int usb_chg_type;
+#endif
+
+extern int max17040_get_battery_capacity_percent(void);
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+extern int threshold_mv;
+#endif
+#endif
+
 struct msm_hardware_charger_priv {
 	struct list_head list;
 	struct msm_hardware_charger *hw_chg;
@@ -90,8 +137,10 @@ struct msm_charger_mux {
 	struct delayed_work teoc_work;
 
 	unsigned int update_time;
+	unsigned int processing_delay; /* [LGE_UPDAET : for battery remove] */
 	int stop_update;
 	struct delayed_work update_heartbeat_work;
+	struct delayed_work update_batt_remove_work;  /* [LGE_UPDAET : for battery remove] */
 
 	struct mutex status_lock;
 	enum msm_battery_status batt_status;
@@ -108,11 +157,59 @@ struct msm_charger_mux {
 	struct work_struct queue_work;
 	struct workqueue_struct *event_wq_thread;
 	struct wake_lock wl;
+
+/* [LGE_UPDATE_S kyungho.kong@lge.com] */
+#ifdef CONFIG_LGE_PM_TEMPERATURE_MONITOR
+  u8 slow_poll;
+  ktime_t last_poll;
+
+  struct wake_lock temp_wake_lock;
+	struct work_struct monitor_work;
+  struct alarm alarm;
+#endif
+/* [LGE_UPDATE_E kyungho.kong@lge.com] */
 };
 
 static struct msm_charger_mux msm_chg;
 
 static struct msm_battery_gauge *msm_batt_gauge;
+
+#ifdef CONFIG_LGE_PM
+static struct pseudo_batt_info_type pseudo_batt_info = {
+	.mode = 0,
+};
+
+static int block_charging_state = 1; /* 1 : charging , 0: block charging */
+
+static int charging_flow_monitor_enable = 1; /* for debugging log */
+struct wake_lock adc_wake_lock;
+#endif
+
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+static int last_stop_charging = 0;
+/* kiwone.seo@lge.com 2011-0609 for show charging ani.although charging is stopped : charging scenario*/
+static int pseudo_ui_charging = 0;
+
+static int chg_batt_temp_state = CHG_BATT_NORMAL_STATE;
+
+extern const struct adc_map_pt adcmap_batttherm[THERM_LAST];
+extern acc_cable_type get_ext_cable_type_value(void);
+extern int pm_chg_imaxsel_set(int chg_current);
+extern int pm_chg_auto_disable(int value);
+#endif
+
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+static bool b_is_at_cmd_on = false;
+
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+extern void bq24160_at_cmd_chg_set(bool set_value);
+extern void bq24160_set_chg_current(int ichg);
+extern void bq24160_determine_the_collect_chg(int start);
+#endif
+#endif
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+extern int bq24160_charger_get_status(void);
+#endif
 
 static int is_chg_capable_of_charging(struct msm_hardware_charger_priv *priv)
 {
@@ -125,12 +222,26 @@ static int is_chg_capable_of_charging(struct msm_hardware_charger_priv *priv)
 
 static int is_batt_status_capable_of_charging(void)
 {
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+  if(b_is_at_cmd_on)
+    return 1;
+  else
+  {
 	if (msm_chg.batt_status == BATT_STATUS_ABSENT
 	    || msm_chg.batt_status == BATT_STATUS_TEMPERATURE_OUT_OF_RANGE
 	    || msm_chg.batt_status == BATT_STATUS_ID_INVALID
 	    || msm_chg.batt_status == BATT_STATUS_JUST_FINISHED_CHARGING)
 		return 0;
 	return 1;
+  }
+#else
+	if (msm_chg.batt_status == BATT_STATUS_ABSENT
+	    || msm_chg.batt_status == BATT_STATUS_TEMPERATURE_OUT_OF_RANGE
+	    || msm_chg.batt_status == BATT_STATUS_ID_INVALID
+	    || msm_chg.batt_status == BATT_STATUS_JUST_FINISHED_CHARGING)
+		return 0;
+	return 1;
+#endif
 }
 
 static int is_batt_status_charging(void)
@@ -143,32 +254,86 @@ static int is_batt_status_charging(void)
 
 static int is_battery_present(void)
 {
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+  if(b_is_at_cmd_on)
+    return 1;
+  else
+  {
+#ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
+	/* kiwone.seo@lge.com, 2011-07-05, in case of factory charging test. */
+	if((6 ==get_ext_cable_type_value())||(7 ==get_ext_cable_type_value())) /* 6,7 = LT cable*/
+	  return 1;
+	else
+#endif
+    if (msm_batt_gauge && msm_batt_gauge->is_battery_present)
+		  return msm_batt_gauge->is_battery_present();
+	  else {
+		  pr_err("msm-charger: no batt gauge batt=absent\n");
+		  return 0;
+	  }
+  }
+#else
 	if (msm_batt_gauge && msm_batt_gauge->is_battery_present)
 		return msm_batt_gauge->is_battery_present();
 	else {
 		pr_err("msm-charger: no batt gauge batt=absent\n");
 		return 0;
 	}
+#endif
 }
 
 static int is_battery_temp_within_range(void)
 {
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+  if(b_is_at_cmd_on)
+    return 1;
+  else
+  {
+    if (msm_batt_gauge && msm_batt_gauge->is_battery_temp_within_range)
+		  return msm_batt_gauge->is_battery_temp_within_range();
+	  else {
+		  pr_err("msm-charger no batt gauge batt=out_of_temperatur\n");
+		  return 0;
+	  }
+  }
+#else
 	if (msm_batt_gauge && msm_batt_gauge->is_battery_temp_within_range)
 		return msm_batt_gauge->is_battery_temp_within_range();
 	else {
 		pr_err("msm-charger no batt gauge batt=out_of_temperatur\n");
 		return 0;
 	}
+#endif
 }
 
 static int is_battery_id_valid(void)
 {
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+  if(b_is_at_cmd_on)
+    return 1;
+  else
+  {
+#ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
+	/* kiwone.seo@lge.com, 2011-07-04, in case of factory charging test. */
+	if((6 ==get_ext_cable_type_value())||(7 ==get_ext_cable_type_value())) /* 6,7 = LT cable*/
+		return 1;
+	else
+#endif
 	if (msm_batt_gauge && msm_batt_gauge->is_battery_id_valid)
 		return msm_batt_gauge->is_battery_id_valid();
 	else {
 		pr_err("msm-charger no batt gauge batt=id_invalid\n");
 		return 0;
 	}
+  }
+#else
+	if (msm_batt_gauge && msm_batt_gauge->is_battery_id_valid)
+		return msm_batt_gauge->is_battery_id_valid();
+	else {
+		pr_err("msm-charger no batt gauge batt=id_invalid\n");
+		return 0;
+	}
+#endif
 }
 
 static int get_prop_battery_mvolts(void)
@@ -183,6 +348,11 @@ static int get_prop_battery_mvolts(void)
 
 static int get_battery_temperature(void)
 {
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+	if((6 ==get_ext_cable_type_value())||(7 ==get_ext_cable_type_value())) /* 6,7 = LT cable*/
+		return MSM_CHARGER_GAUGE_MISSING_TEMP;
+	else
+#endif
 	if (msm_batt_gauge && msm_batt_gauge->get_battery_temperature)
 		return msm_batt_gauge->get_battery_temperature();
 	else {
@@ -190,6 +360,37 @@ static int get_battery_temperature(void)
 		return MSM_CHARGER_GAUGE_MISSING_TEMP;
 	}
 }
+
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+#if !defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+static int get_battery_temperature_adc(void)
+{
+	if((6 ==get_ext_cable_type_value())||(7 ==get_ext_cable_type_value())) /* 6,7 = LT cable*/
+		return 1000;
+	else
+        if (msm_batt_gauge && msm_batt_gauge->get_battery_temperature_adc)
+                return msm_batt_gauge->get_battery_temperature_adc();
+        else {
+                pr_err("msm-charger no batt gauge and no temp adc\n");
+                return 1000;
+        }
+}
+#else
+int get_battery_temperature_adc(void)
+{
+	if((6 ==get_ext_cable_type_value())||(7 ==get_ext_cable_type_value()) ||(11 ==get_ext_cable_type_value())) /* 6,7 = LT cable*/
+		return 1000;
+	else
+	if (msm_batt_gauge && msm_batt_gauge->get_battery_temperature_adc)
+		return msm_batt_gauge->get_battery_temperature_adc();
+	else {
+		pr_err("msm-charger no batt gauge and no temp adc\n");
+		return 1000;
+	}
+}
+EXPORT_SYMBOL(get_battery_temperature_adc);
+#endif
+#endif
 
 static int get_prop_batt_capacity(void)
 {
@@ -204,6 +405,11 @@ static int get_prop_batt_capacity(void)
 		pr_err("battery capacity very low = %d\n", capacity);
 
 	return capacity;
+}
+
+int is_batt_lvl_present(void)
+{
+	return(get_prop_batt_capacity());   
 }
 
 static int get_prop_batt_health(void)
@@ -232,6 +438,7 @@ static int get_prop_charge_type(void)
 	return status;
 }
 
+#if !defined(CONFIG_MACH_LGE_I_BOARD_DCM) && !defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
 static int get_prop_batt_status(void)
 {
 	int status = 0;
@@ -245,16 +452,32 @@ static int get_prop_batt_status(void)
 	}
 
 	if (is_batt_status_charging())
+#ifdef CONFIG_LGE_FUEL_GAUGE
+	{
+		if(get_prop_batt_capacity() >= 100)
+			status = POWER_SUPPLY_STATUS_FULL;
+		else
 		status = POWER_SUPPLY_STATUS_CHARGING;
+	}
+#else
+		status = POWER_SUPPLY_STATUS_CHARGING;
+#endif
 	else if (msm_chg.batt_status ==
 		 BATT_STATUS_JUST_FINISHED_CHARGING
-			 && msm_chg.current_chg_priv != NULL)
+			 && msm_chg.current_chg_priv != NULL
+			 &&(get_prop_batt_capacity() >= 95))
 		status = POWER_SUPPLY_STATUS_FULL;
+#ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
+	/* in case of booting with TA without battery, the battery icon set'*/
+	else if (msm_chg.batt_status == BATT_STATUS_ABSENT)
+		status = POWER_SUPPLY_STATUS_UNKNOWN;
+#endif
 	else
 		status = POWER_SUPPLY_STATUS_DISCHARGING;
 
 	return status;
 }
+#endif
 
  /* This function should only be called within handle_event or resume */
 static void update_batt_status(void)
@@ -273,7 +496,9 @@ static void update_batt_status(void)
 }
 
 static enum power_supply_property msm_power_props[] = {
+#ifndef CONFIG_LGE_FUEL_GAUGE
 	POWER_SUPPLY_PROP_PRESENT,
+#endif
 	POWER_SUPPLY_PROP_ONLINE,
 };
 
@@ -281,10 +506,59 @@ static char *msm_power_supplied_to[] = {
 	"battery",
 };
 
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+int prev_cable_type = 0;
+#endif
+
 static int msm_power_get_property(struct power_supply *psy,
 				  enum power_supply_property psp,
 				  union power_supply_propval *val)
 {
+#ifdef CONFIG_LGE_FUEL_GAUGE
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+    {
+      int bq24160_driver = -1;
+      
+      bq24160_driver = bq24160_charger_get_status();
+
+      if(bq24160_driver == POWER_SUPPLY_STATUS_CHARGING || bq24160_driver == POWER_SUPPLY_STATUS_FULL)
+      {
+        if(usb_chg_type != 0)
+        {
+          prev_cable_type = usb_chg_type;
+        }
+      }
+      else
+      {
+        prev_cable_type = usb_chg_type;
+      }
+
+      if(get_ext_cable_type_value() == 0)
+      {
+        val->intval = 0;
+      }
+      else
+      {
+        if (psy->type == POWER_SUPPLY_TYPE_MAINS)
+			    val->intval = (prev_cable_type == 2); /* not fixed */
+		    if (psy->type == POWER_SUPPLY_TYPE_USB)
+			    val->intval = (prev_cable_type == 3); /* not fixed */
+      }
+    }
+#else
+		if (psy->type == POWER_SUPPLY_TYPE_MAINS)
+			val->intval = (usb_chg_type_for_FG == 2); /* not fixed */
+		if (psy->type == POWER_SUPPLY_TYPE_USB)
+			val->intval = (usb_chg_type_for_FG == 3); /* not fixed */
+#endif
+		break;
+	default:
+			return -EINVAL;
+	}
+	return 0;
+#else
 	struct msm_hardware_charger_priv *priv;
 
 	priv = container_of(psy, struct msm_hardware_charger_priv, psy);
@@ -300,6 +574,7 @@ static int msm_power_get_property(struct power_supply *psy,
 		return -EINVAL;
 	}
 	return 0;
+#endif
 }
 
 static enum power_supply_property msm_batt_power_props[] = {
@@ -312,7 +587,62 @@ static enum power_supply_property msm_batt_power_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CAPACITY,
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+	POWER_SUPPLY_PROP_TEMP,
+#endif
+#ifdef CONFIG_LGE_PM
+	POWER_SUPPLY_PROP_BATTERY_ID_CHECK,
+#endif
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+	POWER_SUPPLY_PROP_BATTERY_TEMP_ADC,
+#endif
+#ifdef CONFIG_LGE_PM
+	POWER_SUPPLY_PROP_PSEUDO_BATT,
+	POWER_SUPPLY_PROP_BLOCK_CHARGING,	
+	POWER_SUPPLY_PROP_EXT_PWR_CHECK, // for auto run, it will check just cable is usb or not.
+  POWER_SUPPLY_PROP_FACTORY_MODE,
+  POWER_SUPPLY_PROP_SMPL_MODE,
+#if 0	
+	POWER_SUPPLY_PROP_WLC_STATUS,
+#endif	
+#endif
 };
+
+#ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
+extern uint16_t battery_info_get(void);
+#endif
+#ifdef CONFIG_LGE_PM_FACTORY_CURRENT_DOWN
+extern int usb_cable_info;
+#endif
+extern unsigned int smpl_on;
+
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+extern int batt_volt;
+extern int batt_temp;
+extern int fuel_percent;
+extern bool chg_complete;
+extern bool chg_resume;
+extern bool bq24160_chg_done_once;
+extern int now_chg_state;
+
+extern bool bq24160_chg_plug_in(void);
+#endif
+
+/* [LGE_UPDATE_ S : For Fuel Gauge Tuning] */
+int cur_soc_val = 0;
+int nv_soc_val = 0;
+static int pre_soc_val = 0;
+static int orig_cur_soc_val = 0;
+static int orig_prev_soc_val = 0;
+static int first_tuning_value = 0;
+static bool is_write_available = false;
+static bool is_rpc_ok = false;
+static bool is_first_diff = false;
+
+extern int batt_gauge_cal_nv_read(void);
+extern uint32_t get_oem_rapi_open_cnt(void);
+/* [LGE_UPDATE_ E : For Fuel Gauge Tuning] */
+
 
 static int msm_batt_power_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
@@ -320,7 +650,27 @@ static int msm_batt_power_get_property(struct power_supply *psy,
 {
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
+#ifdef CONFIG_LGE_PM
+/* we comment out below */
+/*		if(pseudo_batt_info.mode == 1)
+  			val->intval = pseudo_batt_info.charging;
+		else
+*/		
+		if(block_charging_state == 0) // in hidden menu, charging stop. we show animation stop.
+			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
+		else
+#endif
+
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+    if(get_ext_cable_type_value() == 0)
+    {
+      now_chg_state = 0;
+    }
+    
+    val->intval = bq24160_charger_get_status();
+#else
 		val->intval = get_prop_batt_status();
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
 		val->intval = get_prop_charge_type();
@@ -329,10 +679,24 @@ static int msm_batt_power_get_property(struct power_supply *psy,
 		val->intval = get_prop_batt_health();
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
+#ifdef CONFIG_LGE_PM
+		if(pseudo_batt_info.mode == 1)
+		{
+			if(pseudo_batt_info.id == 1 || pseudo_batt_info.therm != 0)
+				val->intval = 1;
+			else
+				val->intval = 0;
+		}
+		else
+#endif
 		val->intval = !(msm_chg.batt_status == BATT_STATUS_ABSENT);
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
+#ifdef CONFIG_LGE_PM
+		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
+#else		
 		val->intval = POWER_SUPPLY_TECHNOLOGY_NiMH;
+#endif
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
 		val->intval = msm_chg.max_voltage * 1000;
@@ -341,11 +705,262 @@ static int msm_batt_power_get_property(struct power_supply *psy,
 		val->intval = msm_chg.min_voltage * 1000;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+#ifdef CONFIG_LGE_PM		
+/* we comment out below */
+/*
+		if(pseudo_batt_info.mode == 1)
+		  val->intval = pseudo_batt_info.volt;
+		else
+*/		
+#endif		
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+    batt_volt = get_prop_battery_mvolts();
+#endif
 		val->intval = get_prop_battery_mvolts();
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
-		val->intval = get_prop_batt_capacity();
+#ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+  if((0 == battery_info_get()) ||(6 ==get_ext_cable_type_value())||(7 ==get_ext_cable_type_value()) ||(11 ==get_ext_cable_type_value())) /* 6,7 = LT cable*/
+		val->intval = 70;//for test only
+	else if((batt_volt > 4250) && (bq24160_chg_done_once))
+	  val->intval = 100;
+	else
+  {
+    /* [LGE_UPDATE_ S : For Fuel Gauge Tuning] */
+    bq24160_chg_done_once = false;
+    cur_soc_val = get_prop_batt_capacity();
+    orig_cur_soc_val = cur_soc_val;
+
+    if((4100 >= get_prop_battery_mvolts()) && (get_prop_battery_mvolts() >= 3600) && !bq24160_chg_plug_in())
+    {  
+       // For NV access only one time!!
+       if(is_rpc_ok == false)
+       {          
+          if(batt_gauge_cal_nv_read() != 0)
+          {
+            pr_info("######### [FUEL] NV Val = %d ########\n", nv_soc_val);
+            is_rpc_ok = true;
+          }
+       }
+       
+      //if(get_oem_rapi_open_cnt() > 0)
+      {
+        // make the referrence value just one time
+        if((!is_write_available) &&  is_rpc_ok)  // First Check
+        {        
+          if((cur_soc_val > nv_soc_val + 2) && (cur_soc_val < nv_soc_val + 7)) // Abnormal Gauge
+          {
+            cur_soc_val = nv_soc_val;
+            first_tuning_value = cur_soc_val;
+          }
+          else if((cur_soc_val < nv_soc_val - 2) && (cur_soc_val > nv_soc_val - 7))  // Abnormal Gauge
+          {
+            cur_soc_val = nv_soc_val - 2;
+            first_tuning_value = cur_soc_val;
+          }
+          else  // Normal Gauging
+          {
+            first_tuning_value = 0;
+          }
+
+          is_write_available = true;
+        }
+        else if(is_write_available && is_rpc_ok)
+        {
+          if(first_tuning_value != 0)
+          {
+            int temp_diff_value = 0;
+
+            temp_diff_value = orig_prev_soc_val - orig_cur_soc_val;
+
+            if(!is_first_diff)
+            {
+              if(temp_diff_value > 2)
+                temp_diff_value = 2;
+            }
+
+            if(temp_diff_value >= 0)
+            {
+              cur_soc_val = pre_soc_val - temp_diff_value;
+            }
+            else
+            {
+              cur_soc_val = pre_soc_val;
+            }
+          }
+
+          is_first_diff = true;
+        }
+      }
+    }
+
+    //pr_info("Posting Val = %d\n", cur_soc_val);
+    
+    orig_prev_soc_val = orig_cur_soc_val;
+    pre_soc_val = cur_soc_val;
+    val->intval = cur_soc_val;
+    /* [LGE_UPDATE_ E : For Fuel Gauge Tuning] */
+  }
+#else
+	if((0 == battery_info_get()) && ((6 ==get_ext_cable_type_value())||(7 ==get_ext_cable_type_value()))) /* 6,7 = LT cable*/
+		val->intval = 70;//for test only
+	else if (msm_chg.batt_status ==
+		 BATT_STATUS_JUST_FINISHED_CHARGING
+			 && msm_chg.current_chg_priv != NULL
+			 &&(get_prop_batt_capacity() >= 95))
+		val->intval = 100;
+	else
+  { 
+    /* [LGE_UPDATE_ S : For Fuel Gauge Tuning] - 20120412*/
+    cur_soc_val = get_prop_batt_capacity();
+    orig_cur_soc_val = cur_soc_val;
+
+    if((4100 >= get_prop_battery_mvolts()) && (get_prop_battery_mvolts() >= 3600) && !is_chg_plugged_in())
+    {  
+       // For NV access only one time!!
+       if(is_rpc_ok == false)
+       {          
+          if(batt_gauge_cal_nv_read() != 0)
+          {
+            pr_info("######### [FUEL] NV Val = %d ########\n", nv_soc_val);
+            is_rpc_ok = true;
+          }
+       }
+       
+      //if(get_oem_rapi_open_cnt() > 0)
+      {
+        // make the referrence value just one time
+        if((!is_write_available) &&  is_rpc_ok)  // First Check
+        {        
+          if((cur_soc_val > nv_soc_val + 2) && (cur_soc_val < nv_soc_val + 7)) // Abnormal Gauge
+          {
+            cur_soc_val = nv_soc_val;
+            first_tuning_value = cur_soc_val;
+          }
+          else if((cur_soc_val < nv_soc_val - 2) && (cur_soc_val > nv_soc_val - 7))  // Abnormal Gauge
+          {
+            cur_soc_val = nv_soc_val - 2;
+            first_tuning_value = cur_soc_val;
+          }
+          else  // Normal Gauging
+          {
+            first_tuning_value = 0;
+          }
+
+          is_write_available = true;
+        }
+        else if(is_write_available && is_rpc_ok)
+        {
+          if(first_tuning_value != 0)
+          {
+            int temp_diff_value = 0;
+
+            temp_diff_value = orig_prev_soc_val - orig_cur_soc_val;
+
+            if(!is_first_diff)
+            {
+              if(temp_diff_value > 2)
+                temp_diff_value = 2;
+            }
+
+            if(temp_diff_value >= 0)
+            {
+              cur_soc_val = pre_soc_val - temp_diff_value;
+            }
+            else
+            {
+              cur_soc_val = pre_soc_val;
+            }
+          }
+          is_first_diff = true;
+        }
+      }
+    }
+
+    //pr_info("Posting Val = %d\n", cur_soc_val);
+    
+    orig_prev_soc_val = orig_cur_soc_val;
+    pre_soc_val = cur_soc_val;
+    val->intval = cur_soc_val;
+    /* [LGE_UPDATE_ E : For Fuel Gauge Tuning] */
+  }
+#endif
+#endif       
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+   fuel_percent = val->intval;
+#endif
 		break;
+#ifdef CONFIG_LGE_PM
+	case POWER_SUPPLY_PROP_BATTERY_ID_CHECK:
+		if(pseudo_batt_info.mode == 1)
+		  val->intval = pseudo_batt_info.id;
+		else if((6 ==get_ext_cable_type_value()) || (7 ==get_ext_cable_type_value()))
+		  val->intval = 1; /* 6 = LT cable*/
+		else
+		val->intval = is_battery_id_valid();
+	break;
+
+#endif
+
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+	case POWER_SUPPLY_PROP_TEMP: // temp�� �µ� �� 
+	  if(pseudo_batt_info.mode == 1)
+		val->intval = pseudo_batt_info.temp*10;	  
+	  else if((6 ==get_ext_cable_type_value()) || (7 ==get_ext_cable_type_value()))
+	  	val->intval = 35*10;
+	  else
+		val->intval = get_battery_temperature()*10;
+	  break;
+
+	case POWER_SUPPLY_PROP_BATTERY_TEMP_ADC: // �µ� ADC ��. 
+    if(pseudo_batt_info.mode == 1)
+      val->intval = pseudo_batt_info.therm;
+    else
+      val->intval = get_battery_temperature_adc();
+    
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+    batt_temp = val->intval;
+#endif
+    break;
+#endif
+
+#ifdef CONFIG_LGE_PM
+  case POWER_SUPPLY_PROP_PSEUDO_BATT:
+    val->intval = pseudo_batt_info.mode;
+    break;
+
+  case POWER_SUPPLY_PROP_BLOCK_CHARGING:
+    val->intval = block_charging_state;
+    break;
+    case POWER_SUPPLY_PROP_EXT_PWR_CHECK:
+  	    val->intval = get_ext_cable_type_value(); // 8  :USB_CABLE_400MA, 9: USB_CABLE_DTC_500MA, 10:ABNORMAL_USB_CABLE_400MA
+  	    break;
+#if 0		
+    case POWER_SUPPLY_PROP_WLC_STATUS:
+	    val->intval = msm_batt_info.wlc_status;
+	    break;
+#endif
+#ifdef CONFIG_LGE_PM_FACTORY_CURRENT_DOWN
+    case POWER_SUPPLY_PROP_FACTORY_MODE:
+      if((0 == battery_info_get())&&((usb_cable_info == 6) ||(usb_cable_info == 7)||(usb_cable_info == 11)))
+	  {
+	   // printk(KERN_DEBUG "############ Factory Mode #####################\n");
+	    val->intval = 1;
+      }
+      else
+      {
+	  //  printk(KERN_DEBUG "############ Normal Mode #####################\n");
+        val->intval = 0;
+      }
+
+    break;
+
+#endif
+  case POWER_SUPPLY_PROP_SMPL_MODE:
+    val->intval = smpl_on;
+		break;
+#endif
 	default:
 		return -EINVAL;
 	}
@@ -360,6 +975,66 @@ static struct power_supply msm_psy_batt = {
 	.get_property = msm_batt_power_get_property,
 };
 
+#ifdef CONFIG_LGE_FUEL_GAUGE
+static struct power_supply msm_psy_ac = {
+	.name = "ac",
+	.type = POWER_SUPPLY_TYPE_MAINS,
+	.supplied_to = msm_power_supplied_to,
+	.num_supplicants = ARRAY_SIZE(msm_power_supplied_to),
+	.properties = msm_power_props,
+	.num_properties = ARRAY_SIZE(msm_power_props),
+	.get_property = msm_power_get_property,
+};
+
+#if defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+static struct power_supply msm_psy_usb = {
+	.name = "usb",
+	.type = POWER_SUPPLY_TYPE_USB,
+	.supplied_to = msm_power_supplied_to,
+	.num_supplicants = ARRAY_SIZE(msm_power_supplied_to),
+	.properties = msm_power_props,
+	.num_properties = ARRAY_SIZE(msm_power_props),
+	.get_property = msm_power_get_property,
+};
+#endif
+#endif
+
+#ifdef CONFIG_LGE_PM
+int pseudo_batt_set(struct pseudo_batt_info_type* info)
+{
+	pseudo_batt_info.mode = info->mode;
+	pseudo_batt_info.id = info->id;
+	pseudo_batt_info.therm = info->therm;
+	pseudo_batt_info.temp = info->temp;
+	pseudo_batt_info.volt = info->volt;
+	pseudo_batt_info.capacity = info->capacity;
+	pseudo_batt_info.charging = info->charging;
+
+	power_supply_changed(&msm_psy_batt);
+	return 0;
+}
+EXPORT_SYMBOL(pseudo_batt_set);
+
+void block_charging_set(int block)
+{
+    if(block)
+    {
+		pm_chg_auto_disable(0);
+    }
+    else
+    {
+    	pm_chg_auto_disable(1);
+    }
+
+}
+void batt_block_charging_set(int block)
+{
+	block_charging_state = block;
+	block_charging_set(block);
+	power_supply_changed(&msm_psy_batt);
+}
+EXPORT_SYMBOL(batt_block_charging_set);
+#endif
 static int usb_chg_current;
 static struct msm_hardware_charger_priv *usb_hw_chg_priv;
 static void (*notify_vbus_state_func_ptr)(int);
@@ -407,8 +1082,39 @@ static void notify_usb_of_the_plugin_event(struct msm_hardware_charger_priv
 	}
 }
 
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+int old_soc;
+extern int is_chg_plugged_in(void);
+extern int max17040_get_battery_capacity_percent(void);
+
 static unsigned int msm_chg_get_batt_capacity_percent(void)
 {
+#ifdef CONFIG_LGE_FUEL_GAUGE
+	int soc = max17040_get_battery_capacity_percent();
+
+	if (!is_chg_plugged_in()) 
+  {
+		if (old_soc < soc) 
+      return old_soc;
+		else 
+    {
+			old_soc = soc;
+			return soc;
+		}
+	}
+	else 
+  {
+		old_soc = soc;
+		return soc;
+	}
+#endif
+}
+#else
+static unsigned int msm_chg_get_batt_capacity_percent(void)
+{
+#ifdef CONFIG_LGE_FUEL_GAUGE
+	return max17040_get_battery_capacity_percent();
+#else
 	unsigned int current_voltage = get_prop_battery_mvolts();
 	unsigned int low_voltage = msm_chg.min_voltage;
 	unsigned int high_voltage = msm_chg.max_voltage;
@@ -420,7 +1126,10 @@ static unsigned int msm_chg_get_batt_capacity_percent(void)
 	else
 		return (current_voltage - low_voltage) * 100
 		    / (high_voltage - low_voltage);
+#endif
 }
+#endif
+
 
 #ifdef DEBUG
 static inline void debug_print(const char *func,
@@ -546,6 +1255,12 @@ static void handle_charging_done(struct msm_hardware_charger_priv *priv)
 
 static void teoc(struct work_struct *work)
 {
+#ifdef CONFIG_LGE_PM
+/* 2011-08-16, when the battery fake mode is on, we don't use safety time for AT&T,MTBF and someting else */
+  if(pseudo_batt_info.mode == 1)
+    return;
+#endif
+
 	/* we have been charging too long - stop charging */
 	dev_info(msm_chg.dev, "%s: safety timer work expired\n", __func__);
 
@@ -597,9 +1312,434 @@ static void handle_battery_removed(void)
 	}
 }
 
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+int g_temp_adc = 1000;
+static int chg_is_battery_too_hot_or_too_cold(int temp_adc, int batt_level)
+{
+    int chg_batt_temp;
+    int rtnValue = 0;
+/* kiwone.seo@lge.com 2011-0609 for show charging ani.although charging is stopped : charging scenario*/
+	pseudo_ui_charging = 0;
+    if(temp_adc < adcmap_batttherm[THERM_55].x)
+      chg_batt_temp = CHG_BATT_TEMP_OVER_55;
+    else if(temp_adc < adcmap_batttherm[THERM_45].x)
+      chg_batt_temp = CHG_BATT_TEMP_46_55;
+    else if(temp_adc <= adcmap_batttherm[THERM_42].x)
+      chg_batt_temp = CHG_BATT_TEMP_42_45;
+    else if(temp_adc < adcmap_batttherm[THERM_M5].x)
+      chg_batt_temp = CHG_BATT_TEMP_M4_41;
+    else if(temp_adc <= adcmap_batttherm[THERM_M10].x)
+      chg_batt_temp = CHG_BATT_TEMP_M10_M5;
+    else
+      chg_batt_temp = CHG_BATT_TEMP_UNDER_M10;
+
+    switch(chg_batt_temp_state)
+    {
+      case CHG_BATT_NORMAL_STATE:
+          if(chg_batt_temp == CHG_BATT_TEMP_OVER_55 || 
+            chg_batt_temp == CHG_BATT_TEMP_UNDER_M10 ||
+            (chg_batt_temp == CHG_BATT_TEMP_46_55 && batt_level > 4000) /*4.0V*/)
+          {
+            chg_batt_temp_state = CHG_BATT_STOP_CHARGING_STATE;
+/* kiwone.seo@lge.com 2011-0609 for show charging ani.although charging is stopped : charging scenario*/
+			if(chg_batt_temp == CHG_BATT_TEMP_UNDER_M10 ||(chg_batt_temp == CHG_BATT_TEMP_46_55 && batt_level > 4000))
+			{
+				pseudo_ui_charging = 1; // we must show charging image although charging is stopped.
+			}
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP OUT OF SPEC (STATE: %d) (thm: %d) (volt: %d)!.\n",
+							__func__,CHG_BATT_NORMAL_STATE,temp_adc,batt_level);
+            }
+			rtnValue = 1;
+          }
+          else if(chg_batt_temp == CHG_BATT_TEMP_46_55 && batt_level <= 4000)
+          {
+            chg_batt_temp_state = CHG_BATT_DC_CURRENT_STATE;
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP 46 ~ 55 (STATE: %d) (thm: %d) (volt: %d)!.\n",
+			  				__func__,CHG_BATT_NORMAL_STATE, temp_adc,batt_level);
+            }
+			
+			      rtnValue = 0;					
+			      if(get_ext_cable_type_value() == MHL_CABLE_500MA ||
+				       get_ext_cable_type_value() == TA_CABLE_600MA ||
+				       get_ext_cable_type_value() == TA_CABLE_800MA ||
+				       get_ext_cable_type_value() == TA_CABLE_DTC_800MA ||					
+				       get_ext_cable_type_value() == USB_CABLE_DTC_500MA ||
+				       get_ext_cable_type_value() == TA_CABLE_FORGED_500MA)
+            {  
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(450);
+#else
+				      pm_chg_imaxsel_set(450);
+#endif
+            }
+          }
+          else
+          {
+            chg_batt_temp_state = CHG_BATT_NORMAL_STATE;
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP NORMAL (STATE: %d) (thm: %d) (volt: %d)!.\n",
+			  				__func__,CHG_BATT_NORMAL_STATE, temp_adc,batt_level);
+            }
+			
+			rtnValue = 0;
+
+			      if(get_ext_cable_type_value() == MHL_CABLE_500MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_600MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(600);
+#else
+				      pm_chg_imaxsel_set(600);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_800MA)
+            { 
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(800);
+#else
+				      pm_chg_imaxsel_set(800);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_DTC_800MA)
+            {
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(800);
+#else
+				      pm_chg_imaxsel_set(800);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_FORGED_500MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == LT_CABLE_56K)
+            {  
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(1500);
+#else
+				      pm_chg_imaxsel_set(1500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == LT_CABLE_130K)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(1500);
+#else
+				      pm_chg_imaxsel_set(1500);	
+#endif
+            }
+			      else if(get_ext_cable_type_value() == USB_CABLE_DTC_500MA)
+            { 
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(450);
+#else
+				      pm_chg_imaxsel_set(450);
+#endif
+            }
+          }
+        break;
+
+      case CHG_BATT_DC_CURRENT_STATE:
+          if(chg_batt_temp == CHG_BATT_TEMP_OVER_55 || 
+              chg_batt_temp == CHG_BATT_TEMP_UNDER_M10 ||
+              (chg_batt_temp == CHG_BATT_TEMP_46_55 && batt_level > 4000) /*4.0V*/)
+          {
+            chg_batt_temp_state = CHG_BATT_STOP_CHARGING_STATE;
+/* kiwone.seo@lge.com 2011-0609 for show charging ani.although charging is stopped : charging scenario*/
+			if(chg_batt_temp == CHG_BATT_TEMP_UNDER_M10 ||(chg_batt_temp == CHG_BATT_TEMP_46_55 && batt_level > 4000))
+			{
+				pseudo_ui_charging = 1; // we must show charging image although charging is stopped.
+			}
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP OUT OF SPEC (STATE: %d) (thm: %d) (volt: %d)!.\n",
+			 				__func__,CHG_BATT_DC_CURRENT_STATE, temp_adc,batt_level);
+			}
+			
+			rtnValue = 1;
+          }
+          else if(chg_batt_temp == CHG_BATT_TEMP_46_55 && batt_level <= 4000)
+          {
+            chg_batt_temp_state = CHG_BATT_DC_CURRENT_STATE;
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP 46 ~ 55 (STATE: %d) (thm: %d) (volt: %d)!.\n",
+							__func__,CHG_BATT_DC_CURRENT_STATE, temp_adc,batt_level);
+            }
+			      rtnValue = 0;
+			      if(get_ext_cable_type_value() == MHL_CABLE_500MA ||
+				      get_ext_cable_type_value() == TA_CABLE_600MA ||
+				      get_ext_cable_type_value() == TA_CABLE_800MA ||
+				      get_ext_cable_type_value() == TA_CABLE_DTC_800MA ||				
+				      get_ext_cable_type_value() == TA_CABLE_FORGED_500MA ||
+				      get_ext_cable_type_value() == USB_CABLE_DTC_500MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(450);
+#else
+				      pm_chg_imaxsel_set(450);
+#endif			
+            }
+          }
+          else if(chg_batt_temp == CHG_BATT_TEMP_M4_41 || chg_batt_temp == CHG_BATT_TEMP_M10_M5 || chg_batt_temp == CHG_BATT_TEMP_42_45)
+          {
+            chg_batt_temp_state = CHG_BATT_NORMAL_STATE;			
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP NORMAL (STATE: %d) (thm: %d) (volt: %d)!.\n",
+							__func__,CHG_BATT_DC_CURRENT_STATE, temp_adc,batt_level);
+            }
+			rtnValue = 0;	
+
+			      if(get_ext_cable_type_value() == MHL_CABLE_500MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_600MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(600);
+#else
+				      pm_chg_imaxsel_set(600);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_800MA)
+            { 
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(800);
+#else
+				      pm_chg_imaxsel_set(800);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_DTC_800MA)
+            {
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(800);
+#else
+				      pm_chg_imaxsel_set(800);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_FORGED_500MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == LT_CABLE_56K)
+            {  
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(1500);
+#else
+				      pm_chg_imaxsel_set(1500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == LT_CABLE_130K)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(1500);
+#else
+				      pm_chg_imaxsel_set(1500);	
+#endif
+            }
+			      else if(get_ext_cable_type_value() == USB_CABLE_DTC_500MA)
+            { 
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(450);
+#else
+				      pm_chg_imaxsel_set(450);
+#endif
+            }
+          }
+          else
+   		  {
+			chg_batt_temp_state = CHG_BATT_DC_CURRENT_STATE;
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP UNREAL (STATE: %d) (thm: %d) (volt: %d)!.\n",
+							__func__,CHG_BATT_DC_CURRENT_STATE, temp_adc,batt_level);
+			}
+			
+			rtnValue = 0; 				
+		  }       
+          break;
+
+      case CHG_BATT_STOP_CHARGING_STATE:
+        if(chg_batt_temp == CHG_BATT_TEMP_M4_41 /* #ifndef SKW_TEST || chg_batt_temp== CHG_BATT_TEMP_M10_M5*/)
+        {
+			chg_batt_temp_state = CHG_BATT_NORMAL_STATE;
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP NORMAL (STATE: %d) (thm: %d) (volt: %d)!.\n",
+							__func__,CHG_BATT_STOP_CHARGING_STATE, temp_adc,batt_level);
+	        }
+			
+			rtnValue = 0;			
+
+			    if(get_ext_cable_type_value() == MHL_CABLE_500MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_600MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(600);
+#else
+				      pm_chg_imaxsel_set(600);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_800MA)
+            { 
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(800);
+#else
+				      pm_chg_imaxsel_set(800);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_DTC_800MA)
+            {
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(800);
+#else
+				      pm_chg_imaxsel_set(800);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == TA_CABLE_FORGED_500MA)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == LT_CABLE_56K)
+            {  
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(1500);
+#else
+				      pm_chg_imaxsel_set(1500);
+#endif
+            }
+			      else if(get_ext_cable_type_value() == LT_CABLE_130K)
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(1500);
+#else
+				      pm_chg_imaxsel_set(1500);	
+#endif
+            }
+			      else if(get_ext_cable_type_value() == USB_CABLE_DTC_500MA)
+            { 
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(500);
+#else
+				      pm_chg_imaxsel_set(500);
+#endif
+            }
+			      else
+            {   
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+              bq24160_set_chg_current(450);
+#else
+				      pm_chg_imaxsel_set(450);
+#endif
+            }
+		}
+/* kiwone.seo@lge.com 2011-05-12, charging scenario. do not anything.		
+		else if((chg_batt_temp == CHG_BATT_TEMP_46_55 && batt_level <= 4000) || chg_batt_temp == CHG_BATT_TEMP_42_45)
+        {
+			chg_batt_temp_state = CHG_BATT_DC_CURRENT_STATE;
+			if(charging_flow_monitor_enable == 1)
+			{
+			 	pr_err("%s: BATT TEMP NORMAL (STATE: %d) (thm: %d) (volt: %d)!.",
+			  				__func__,CHG_BATT_STOP_CHARGING_STATE, temp_adc,batt_level);
+			}
+			
+			rtnValue = 0; 				
+			if(get_ext_cable_type_value() == MHL_CABLE_500MA ||
+				get_ext_cable_type_value() == TA_CABLE_600MA ||
+				get_ext_cable_type_value() == TA_CABLE_800MA ||
+				get_ext_cable_type_value() == TA_CABLE_DTC_800MA ||				
+				get_ext_cable_type_value() == TA_CABLE_FORGED_500MA
+				)
+				pm_chg_imaxsel_set(400);
+        }
+*/        
+        else
+        {
+			chg_batt_temp_state = CHG_BATT_STOP_CHARGING_STATE;
+/* kiwone.seo@lge.com 2011-0621 1. stop charging, 2. remove charger, 3 insert charger while stop charging */
+			if(chg_batt_temp == CHG_BATT_TEMP_UNDER_M10 ||(chg_batt_temp == CHG_BATT_TEMP_46_55 && batt_level > 4000))
+			{
+				pseudo_ui_charging = 1; // we must show charging image although charging is stopped.
+			}
+			
+			if(charging_flow_monitor_enable == 1)
+			{
+				pr_err("%s: BATT TEMP OUT OF SPEC (STATE: %d) (thm: %d) (volt: %d)!.\n",
+							__func__,CHG_BATT_STOP_CHARGING_STATE, temp_adc,batt_level);
+			}
+			rtnValue = 1;
+        }
+        break;
+    }
+
+	return rtnValue;
+
+}
+
+
+#endif
+
 static void update_heartbeat(struct work_struct *work)
 {
 	int temperature;
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+	int temp_adc;
+	int battery_level;
+	int stop_charging = 0;
+#endif
 
 	if (msm_chg.batt_status == BATT_STATUS_ABSENT
 		|| msm_chg.batt_status == BATT_STATUS_ID_INVALID) {
@@ -630,11 +1770,64 @@ static void update_heartbeat(struct work_struct *work)
 			== CHG_CHARGING_STATE) {
 		temperature = get_battery_temperature();
 		/* TODO implement JEITA SPEC*/
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+		pr_err("%s: battery temperature is %d celcius)!.\n",__func__,temperature);
+		temp_adc = get_battery_temperature_adc();
+        g_temp_adc = temp_adc;
+		if(pseudo_batt_info.mode == 1)
+		{
+		  temp_adc = pseudo_batt_info.therm; // kiwone.seo 2011-07-08 charging must be work in case of DV event in high temp
+		}
+		battery_level = get_prop_battery_mvolts();
+		stop_charging = chg_is_battery_too_hot_or_too_cold(temp_adc,battery_level);
+/* kiwone.seo@lge.com 2011-05-11, case 1 : charging is started in case of very hot or cold ==> should call pm_chg_auto_disable(1), 
+case 2: charging is started in hot or cold case and then if temp is normal, we should call pm_chg_auto_disable(0)
+case 3 : charging is started in case of normal ==> should not call pm_chg_auto_disable(0) because charging is already started.
+case 4 : charging is started in normal case and then if temp is very hot/cold, we should call pm_chg_auto_disable(1) */
+		if(stop_charging == 1 && last_stop_charging == 0)
+		{
+			pm_chg_auto_disable(1);
+			pr_err("msm-charger stop charing by scenario\n");
+			last_stop_charging = stop_charging;
+#if 1 // after stop charging, charging is working when TA re-inserted to inform UI
+/* kiwone.seo@lge.com 2011-0609 for show charging ani.although charging is stopped : charging scenario*/
+			if(pseudo_ui_charging)
+				; 
+			else
+			msm_chg.batt_status = BATT_STATUS_TEMPERATURE_OUT_OF_RANGE;
+#endif
+		}
+		else if(stop_charging == 0 && last_stop_charging == 1)
+		{
+			pm_chg_auto_disable(0);
+			pr_err("msm-charger start charing by scenario\n");
+			last_stop_charging = stop_charging;
+/* kiwone.seo@lge.com 2011-0609 for show charging ani.although charging is stopped : charging scenario*/
+			pseudo_ui_charging = 0;
+#if 1 // after stop charging, charging is working when TA re-inserted to inform UI
+			msm_chg.batt_status = BATT_STATUS_TRKL_CHARGING;
+#endif
+		}
+#endif
 	}
 
 	/* notify that the voltage has changed
 	 * the read of the capacity will trigger a
 	 * voltage read*/
+#ifdef CONFIG_LGE_FUEL_GAUGE
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+  if (usb_chg_type == 2) /* not fixed */
+		power_supply_changed(&msm_psy_ac);
+#else
+	if (usb_chg_type_for_FG == 2) /* not fixed */
+		power_supply_changed(&msm_psy_ac);
+#endif
+#if defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+	else if (usb_chg_type == 3)
+		power_supply_changed(&msm_psy_usb);
+#endif
+	else
+#endif
 	power_supply_changed(&msm_psy_batt);
 
 	if (msm_chg.stop_update) {
@@ -720,12 +1913,41 @@ static void handle_charger_ready(struct msm_hardware_charger_priv *hw_chg_priv)
 	}
 }
 
+// START sungchae.koo@lge.com 2011/08/30 P1_LAB_BSP {
+#define SKIP_STOP_CHARGING  1
+#define DO_STOP_CHARGING    0
+int lge_skip_stop_charging_with_factory_condition( void )
+{
+    acc_cable_type ext_cable_type;
+    printk(KERN_DEBUG "%s: entered\n",__func__);
+
+    if(0 != battery_info_get())
+    {
+        printk(KERN_DEBUG "%s: battery is present! ignore factory condition\n",__func__);
+        return DO_STOP_CHARGING;
+    }
+
+    ext_cable_type = get_ext_cable_type_value();
+    if( LT_CABLE_56K == ext_cable_type ) {
+        printk(KERN_DEBUG "%s: 56K or 910K Factory Cable detected\n",__func__);
+        return SKIP_STOP_CHARGING;
+    }
+    else {
+        return DO_STOP_CHARGING;
+    }
+}
+// END sungchae.koo@lge.com 2011/08/30 P1_LAB_BSP }
+
 static void handle_charger_removed(struct msm_hardware_charger_priv
 				   *hw_chg_removed, int new_state)
 {
 	struct msm_hardware_charger_priv *hw_chg_priv;
 
 	debug_print(__func__, hw_chg_removed);
+// START sungchae.koo@lge.com 2011/08/30 P1_LAB_BSP {
+    if( lge_skip_stop_charging_with_factory_condition() )
+        return;
+// END sungchae.koo@lge.com 2011/08/30 P1_LAB_BSP }
 
 	if (msm_chg.current_chg_priv == hw_chg_removed) {
 		msm_disable_system_current(hw_chg_removed);
@@ -749,8 +1971,29 @@ static void handle_charger_removed(struct msm_hardware_charger_priv
 			 * we keep that state as is so that we dont rush
 			 * in to charging the battery when a charger is
 			 * plugged in shortly. */
+#ifdef CONFIG_LGE_PM
+/* kiwone.seo@lge.com, 2011-05-21, chariging never started buf fix
+the test step : charging complete by autonomous -> cable eject->cable insert->charging never start
+and the battery FET in on and externel charger is disconnected. this is bug, we must comment out 'if()'*/
+#else
 			if (is_batt_status_charging())
+#endif				
 				msm_chg.batt_status = BATT_STATUS_DISCHARGING;
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+            pm8xxx_batt_alarm_config_lge();
+#endif
+
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+            if (!is_battery_id_valid())
+            {
+            	pr_err("===========================================================");
+            	pr_err("%s: pm_power_off board  \n",__func__);
+            	pr_err("===========================================================");
+            
+                pm_power_off();
+            }
+#endif
+            
 		} else {
 			msm_chg.current_chg_priv = hw_chg_priv;
 			msm_enable_system_current(hw_chg_priv);
@@ -765,6 +2008,10 @@ static void handle_charger_removed(struct msm_hardware_charger_priv
 				/* we couldnt start charging for some reason */
 				msm_chg.batt_status = BATT_STATUS_DISCHARGING;
 			}
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+            pm8xxx_batt_alarm_config_lge();
+#endif
+
 		}
 	}
 
@@ -775,6 +2022,26 @@ static void handle_charger_removed(struct msm_hardware_charger_priv
 		cancel_delayed_work(&msm_chg.teoc_work);
 	}
 }
+
+/* [LGE_UPDAET_S : for battery remove] */
+extern void pm8058_chg_batt_remove_and_reset(void);
+static void update_battery_remove_work(struct work_struct *work)
+{
+  if(msm_batt_gauge->get_battery_temperature_adc() < 2000)
+  {
+    printk(KERN_ERR "================== [ update_battery_remove_work ] BATTERY INSERTED!!!! =======================\n");
+  }
+  else
+  {
+    printk(KERN_ERR "================== [ update_battery_remove_work ] BATTERY REMOVED!!!! =======================\n");
+    pm8058_chg_batt_remove_and_reset();
+  }
+}
+/* [LGE_UPDAET_E : for battery remove] */
+
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+static bool cable_already_inserted = false;
+#endif
 
 static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 {
@@ -791,12 +2058,23 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 
 	switch (event) {
 	case CHG_INSERTED_EVENT:
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+		last_stop_charging = 0;
+/* kiwone.seo@lge.com 2011-0609 for show charging ani.although charging is stopped : charging scenario*/
+		pseudo_ui_charging = 0;
+#endif
 		if (priv->hw_chg_state != CHG_ABSENT_STATE) {
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+      cable_already_inserted = true;
+#endif
 			dev_info(msm_chg.dev,
 				 "%s insertion detected when cbl present",
 				 hw_chg->name);
 			break;
 		}
+#ifdef CONFIG_LGE_TOUCH_CHAGER_CTRL
+		trigger_baseline_state_machine(IC_CHARGER_CTRL_ON);
+#endif 				
 		update_batt_status();
 		if (hw_chg->type == CHG_TYPE_USB) {
 			priv->hw_chg_state = CHG_PRESENT_STATE;
@@ -830,18 +2108,39 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 				handle_charger_removed(priv, CHG_PRESENT_STATE);
 		} else {
 			if (priv->hw_chg_state != CHG_READY_STATE) {
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+/* kiwone.seo@lge.com 2011-06-10, when booting up with charger, 
+    the charging temp scenario doesn't work, because the hw_state is ready although the device is in charging.
+    : the temp scenario in update_heartbeat() function.*/				
+				if(priv->hw_chg_state == CHG_CHARGING_STATE)
+					; // don't change hw_chg_state
+				else
+#endif
 				priv->hw_chg_state = CHG_READY_STATE;
 				handle_charger_ready(priv);
 			}
 		}
 		break;
 	case CHG_REMOVED_EVENT:
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+    cable_already_inserted = false;
+#endif
 		if (priv->hw_chg_state == CHG_ABSENT_STATE) {
 			dev_info(msm_chg.dev, "%s cable already removed\n",
 				 hw_chg->name);
 			break;
 		}
+#ifdef CONFIG_LGE_TOUCH_CHAGER_CTRL
+		trigger_baseline_state_machine(IC_CHARGER_CTRL_OFF);
+#endif 		
 		update_batt_status();
+#ifdef CONFIG_LGE_FUEL_GAUGE
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+    usb_chg_type = 0;
+#else
+		usb_chg_type_for_FG = 0;
+#endif
+#endif
 		if (hw_chg->type == CHG_TYPE_USB) {
 			usb_chg_current = 0;
 			notify_usb_of_the_plugin_event(priv, 0);
@@ -849,6 +2148,9 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 		handle_charger_removed(priv, CHG_ABSENT_STATE);
 		break;
 	case CHG_DONE_EVENT:
+#ifdef CONFIG_LGE_TOUCH_CHAGER_CTRL
+		trigger_baseline_state_machine(IC_CHARGER_CTRL_NONE);
+#endif 		
 		if (priv->hw_chg_state == CHG_CHARGING_STATE)
 			handle_charging_done(priv);
 		break;
@@ -916,6 +2218,24 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 		/* TODO  battery SOC like battery-alarm/charging-full features
 		can be added here for future improvement */
 		break;
+/* [LGE_UPDAET_S : for battery remove] */
+//#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+	case CHG_BATT_REMOVE_EVENT:
+		printk(KERN_DEBUG "############ Handle Event: [CHG_BATT_REMOVE_EVENT] #####################\n");
+		queue_delayed_work(msm_chg.event_wq_thread,
+				&msm_chg.update_batt_remove_work,
+			      round_jiffies_relative(msecs_to_jiffies
+						     (msm_chg.processing_delay)));
+		break;
+//#endif
+/* [LGE_UPDAET_E : for battery remove] */
+
+/* [LGE_UPDAET_S : for Fuel Gauge BUG] */
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+	case CHG_BATT_REFRESH_EVENT:
+		break;
+#endif
+/* [LGE_UPDAET_S : for Fuel Gauge BUG] */
 	}
 	dev_dbg(msm_chg.dev, "%s %d done batt_status=%d\n", __func__,
 		event, msm_chg.batt_status);
@@ -923,8 +2243,27 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 	/* update userspace */
 	if (msm_batt_gauge)
 		power_supply_changed(&msm_psy_batt);
+#ifdef CONFIG_LGE_FUEL_GAUGE
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+  if(!cable_already_inserted)
+  {
+    if (usb_chg_type == 2) /* not fixed */
+	    power_supply_changed(&msm_psy_ac);
+	  else if (usb_chg_type == 3) /* not fixed */
+	    power_supply_changed(&msm_psy_usb);
+  }
+#else
+	if (priv) {
+		if (usb_chg_type_for_FG == 2) /* not fixed */
+			power_supply_changed(&msm_psy_ac);
+		else
+			power_supply_changed(&priv->psy);
+	}
+#endif
+#else
 	if (priv)
 		power_supply_changed(&priv->psy);
+#endif
 
 	mutex_unlock(&msm_chg.status_lock);
 }
@@ -993,6 +2332,9 @@ void msm_charger_vbus_draw(unsigned int mA)
 
 static int __init determine_initial_batt_status(void)
 {
+	/* neo.kang@lge.com */
+	int rc;
+
 	if (is_battery_present())
 		if (is_battery_id_valid())
 			if (is_battery_temp_within_range())
@@ -1008,6 +2350,23 @@ static int __init determine_initial_batt_status(void)
 	if (is_batt_status_capable_of_charging())
 		handle_battery_inserted();
 
+#ifdef CONFIG_LGE_FUEL_GAUGE
+	rc = power_supply_register(msm_chg.dev, &msm_psy_ac);
+	if (rc < 0) {
+		dev_err(msm_chg.dev, "%s(AC): power_supply_register failed"
+			" rc=%d\n", __func__, rc);
+		return rc;
+	}
+#if defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+	rc = power_supply_register(msm_chg.dev, &msm_psy_usb);
+	if (rc < 0) {
+		dev_err(msm_chg.dev, "%s(USB): power_supply_register failed"
+			" rc=%d\n", __func__, rc);
+		return rc;
+	}
+#endif
+#endif
+
 	/* start updaing the battery powersupply every msm_chg.update_time
 	 * milliseconds */
 	queue_delayed_work(msm_chg.event_wq_thread,
@@ -1019,8 +2378,366 @@ static int __init determine_initial_batt_status(void)
 	return 0;
 }
 
+#ifdef CONFIG_LGE_PM_CURRENT_CABLE_TYPE
+/* START. kiwone.seo@lge.com, 2011-08-11, to meet VZW spec , in case of booting up with TA+no battery */
+int get_is_battery_present(void)
+{
+	return msm_chg.batt_status;
+};
+EXPORT_SYMBOL(get_is_battery_present);
+/* END */
+#endif
+
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+extern int pm8058_start_charging_for_ATCMD(void);
+extern int pm8058_stop_charging_for_ATCMD(void);
+
+extern void max17040_set_battery_atcmd(int flag, int value);
+extern int max17040_get_battery_capacity_percent(void);
+extern void machine_restart(char *cmd);
+
+
+static ssize_t at_chg_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int r = 0;
+  bool b_chg_ok = false;
+
+  if(msm_chg.current_chg_priv->hw_chg_state == CHG_CHARGING_STATE)
+  {
+    b_chg_ok = true;
+	  r = sprintf(buf, "%d\n", b_chg_ok);
+  }
+  else
+  {
+    b_chg_ok = false;
+	  r = sprintf(buf, "%d\n", b_chg_ok);
+  }
+	
+	return r;
+}
+
+
+static ssize_t at_chg_status_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+  int ret;
+  unsigned char string[2];
+
+	sscanf(buf, "%s", string);
+
+  if (!count)
+		return -EINVAL;
+
+  if(!strncmp(string, "0", 1))
+  {
+    /* Stop Charging */
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+    struct msm_hardware_charger_priv *priv;
+
+    bq24160_at_cmd_chg_set(true);
+
+    /* 20111012 hoyeon.jang@lge.com, check NULL of msm_chg.current_chg_priv {++*/
+    if (msm_chg.current_chg_priv != NULL)
+    {
+      priv = msm_chg.current_chg_priv;
+  	  ret = priv->hw_chg->stop_charging(priv->hw_chg);
+
+      msm_chg.current_chg_priv->hw_chg_state = CHG_ABSENT_STATE;
+    }
+    /* 20111012 hoyeon.jang@lge.com, check NULL of msm_chg.current_chg_priv }++*/
+    
+    msm_chg.batt_status = BATT_STATUS_ABSENT;
+#else
+    if(msm_chg.current_chg_priv->hw_chg_state == CHG_CHARGING_STATE)
+    {
+      ret = pm8058_stop_charging_for_ATCMD();
+      msm_chg.current_chg_priv->hw_chg_state = CHG_ABSENT_STATE;
+      msm_chg.batt_status = BATT_STATUS_ABSENT;
+      b_is_at_cmd_on = false;
+    }
+#endif
+  }
+  else if(!strncmp(string, "1", 1))
+  {
+    /* Start Charging */
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+	  struct msm_hardware_charger_priv *priv;
+
+    bq24160_at_cmd_chg_set(true);
+
+    msm_chg.batt_status = BATT_STATUS_FAST_CHARGING;
+    /* 20111012 hoyeon.jang@lge.com, check NULL of msm_chg.current_chg_priv {++*/
+    if (msm_chg.current_chg_priv != NULL)
+    {
+      msm_chg.current_chg_priv->hw_chg_state = CHG_CHARGING_STATE;
+
+      priv = msm_chg.current_chg_priv;
+      ret = priv->hw_chg->start_charging(priv->hw_chg, msm_chg.max_voltage,
+					 priv->max_source_current);
+    }
+    /* 20111012 hoyeon.jang@lge.com, check NULL of msm_chg.current_chg_priv }++*/
+#else
+    if(msm_chg.current_chg_priv->hw_chg_state != CHG_CHARGING_STATE)
+    {
+      printk(KERN_DEBUG "############ [chg_status_store] START CHARGING #####################\n");
+
+      b_is_at_cmd_on = true;
+      msm_chg.current_chg_priv->hw_chg_state = CHG_CHARGING_STATE;
+      msm_chg.batt_status = BATT_STATUS_FAST_CHARGING;
+      ret = pm8058_start_charging_for_ATCMD();
+
+      msm_charger_notify_event(usb_hw_chg_priv->hw_chg, CHG_BATT_BEGIN_FAST_CHARGING);
+    }
+#endif
+  }
+	
+	return count;
+}
+
+
+static ssize_t at_chg_status_complete_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int r = 0;
+	bool b_chg_complete = false;
+
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM)
+  int guage_level = 0;
+
+  guage_level = max17040_get_battery_capacity_percent();
+
+  if(guage_level == 100)
+  {
+    b_chg_complete = true;
+	  r = sprintf(buf, "%d\n", b_chg_complete);
+  }
+  else
+  {
+    b_chg_complete = false;
+	  r = sprintf(buf, "%d\n", b_chg_complete);
+  }
+#else
+  if(get_prop_batt_status()==POWER_SUPPLY_STATUS_FULL)
+  {
+    b_chg_complete = true;
+	  r = sprintf(buf, "%d\n", b_chg_complete);
+  }
+  else
+  {
+    b_chg_complete = false;
+	  r = sprintf(buf, "%d\n", b_chg_complete);
+  }
+#endif
+	
+	return r;
+}
+
+static ssize_t at_chg_status_complete_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    int ret;  
+    unsigned char string[2];
+  
+    sscanf(buf, "%s", string);
+  
+    if (!count)
+      return -EINVAL;
+  
+    if(!strncmp(string, "0", 1))
+    {
+      /* Charging not Complete */
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+      struct msm_hardware_charger_priv *priv;
+
+      bq24160_at_cmd_chg_set(true);
+
+      msm_chg.batt_status = BATT_STATUS_FAST_CHARGING;
+
+      /* 20111012 hoyeon.jang@lge.com, check NULL of msm_chg.current_chg_priv {++*/
+      if (msm_chg.current_chg_priv != NULL)
+      {
+        msm_chg.current_chg_priv->hw_chg_state = CHG_CHARGING_STATE;
+        priv = msm_chg.current_chg_priv;
+        ret = priv->hw_chg->start_charging(priv->hw_chg, msm_chg.max_voltage,
+  					 priv->max_source_current);
+      }      
+      /* 20111012 hoyeon.jang@lge.com, check NULL of msm_chg.current_chg_priv }++*/
+      max17040_set_battery_atcmd(2, 100);
+#else
+      if(msm_chg.current_chg_priv->hw_chg_state != CHG_CHARGING_STATE)
+      {  
+        msm_chg.current_chg_priv->hw_chg_state = CHG_CHARGING_STATE;
+        msm_chg.batt_status = BATT_STATUS_FAST_CHARGING;
+        ret = pm8058_start_charging_for_ATCMD();
+
+        msm_charger_notify_event(usb_hw_chg_priv->hw_chg, CHG_BATT_BEGIN_FAST_CHARGING);
+        max17040_set_battery_atcmd(2, 100);
+        b_is_at_cmd_on = false;
+      }
+#endif
+    }
+    else if(!strncmp(string, "1", 1))
+    {
+      /* Charging Complete */
+#if defined(CONFIG_MACH_LGE_I_BOARD_DCM) && defined(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY)
+      struct msm_hardware_charger_priv *priv;
+
+      bq24160_at_cmd_chg_set(true);
+
+      /* 20111012 hoyeon.jang@lge.com, check NULL of msm_chg.current_chg_priv {++*/
+      if (msm_chg.current_chg_priv != NULL)
+      {
+        priv = msm_chg.current_chg_priv;
+  	    ret = priv->hw_chg->stop_charging(priv->hw_chg);
+        
+        msm_chg.current_chg_priv->hw_chg_state = CHG_ABSENT_STATE;
+      }
+      /* 20111012 hoyeon.jang@lge.com, check NULL of msm_chg.current_chg_priv }++*/
+      msm_chg.batt_status = BATT_STATUS_ABSENT;
+
+      max17040_set_battery_atcmd(1, 100);
+#else
+      if((msm_chg.batt_status != BATT_STATUS_JUST_FINISHED_CHARGING))
+      {  
+        b_is_at_cmd_on = true;
+
+        ret = pm8058_stop_charging_for_ATCMD();
+        msm_chg.current_chg_priv->hw_chg_state = CHG_ABSENT_STATE;
+        msm_chg.batt_status = BATT_STATUS_ABSENT;
+
+        max17040_set_battery_atcmd(1, 100);
+      }
+#endif
+    }
+    
+    return count;
+
+}
+
+
+
+static ssize_t at_fuel_guage_reset_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int r = 0;
+
+	max17040_set_battery_atcmd(0, 100);  // Reset the fuel guage IC
+
+	r = sprintf(buf, "%d\n", true);
+
+	max17040_set_battery_atcmd(2, 100);  // Release the AT command mode
+	
+	return r;
+}
+
+
+static ssize_t at_fuel_guage_level_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int r = 0;
+	int guage_level = 0;
+
+	guage_level = max17040_get_battery_capacity_percent();
+
+	r = sprintf(buf, "%d\n", guage_level);
+	
+	return r;
+}
+
+static ssize_t at_pmic_reset_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int r = 0;
+
+	msleep(500); //for waiting return values of testmode
+
+	machine_restart(NULL);
+
+	r = sprintf(buf, "%d\n", true);
+	
+	return r;
+}
+
+
+static ssize_t at_batt_level_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int r = 0;
+	int battery_level = 0;
+  
+  battery_level = get_prop_battery_mvolts();
+
+  printk(KERN_DEBUG "############ [at_batt_level_show] BATT LVL = %d #####################\n", battery_level);
+
+  r = sprintf(buf, "%d\n", battery_level);
+	
+	return r;
+}
+
+
+
+DEVICE_ATTR(at_charge, 0644, at_chg_status_show, at_chg_status_store);
+DEVICE_ATTR(at_chcomp, 0644, at_chg_status_complete_show, at_chg_status_complete_store);
+DEVICE_ATTR(at_fuelrst, 0644, at_fuel_guage_reset_show, NULL);
+DEVICE_ATTR(at_fuelval, 0644, at_fuel_guage_level_show, NULL);
+DEVICE_ATTR(at_pmrst, 0644, at_pmic_reset_show, NULL);
+DEVICE_ATTR(at_batl, 0644, at_batt_level_show, NULL);
+#endif
+
+
+/* [LGE_UPDATE_S kyungho.kong@lge.com] */
+#ifdef CONFIG_LGE_PM_TEMPERATURE_MONITOR
+static void msm_charger_program_alarm(int seconds)
+{
+	ktime_t low_interval = ktime_set(seconds - 10, 0);
+	ktime_t slack = ktime_set(20, 0);
+	ktime_t next;
+
+ // printk(KERN_DEBUG "############ [msm_charger_program_alarm] ALARM TIME = %d #####################\n", seconds);
+
+	next = ktime_add(msm_chg.last_poll, low_interval);
+
+	alarm_start_range(&msm_chg.alarm, next, ktime_add(next, slack));
+}
+
+
+static void msm_charger_temp_work(struct work_struct *work)
+{  
+  int temp_adc;
+  int polling_sec_time;
+  
+	msm_chg.last_poll = alarm_get_elapsed_realtime();
+
+  /* Check the battery temperature to decide next alarm time */
+  temp_adc = g_temp_adc;
+
+  if(temp_adc < adcmap_batttherm[THERM_55].x)
+    polling_sec_time = TIME_POLL_0P5_MINUTE;
+  else if(temp_adc < adcmap_batttherm[THERM_45].x)
+    polling_sec_time = TIME_POLL_10_MINUTE;
+  else if(temp_adc <= adcmap_batttherm[THERM_42].x)
+    polling_sec_time = TIME_POLL_30_MINUTE;
+  else
+    polling_sec_time = TIME_POLL_90_MINUTE;
+
+  printk(KERN_DEBUG "############ [msm_charger_temp_work] POLL TIME = %d #####################\n", polling_sec_time);
+
+  /* Set the Next Alarm Time */
+	msm_charger_program_alarm(polling_sec_time);
+
+	/* prevent suspend before starting the alarm */
+	wake_unlock(&msm_chg.temp_wake_lock);
+}
+
+
+static void msm_charger_temperature_battery_alarm(struct alarm *alarm)
+{
+  printk(KERN_DEBUG "############ [msm_charger_temperature_battery_alarm] #####################\n");
+  
+	wake_lock(&msm_chg.temp_wake_lock);
+	queue_work(msm_chg.event_wq_thread, &msm_chg.monitor_work);
+}
+#endif
+/* [LGE_UPDATE_E kyungho.kong@lge.com] */
+
 static int __devinit msm_charger_probe(struct platform_device *pdev)
 {
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+  int err;
+#endif
 	msm_chg.dev = &pdev->dev;
 	if (pdev->dev.platform_data) {
 		unsigned int milli_secs;
@@ -1062,9 +2779,41 @@ static int __devinit msm_charger_probe(struct platform_device *pdev)
 		msm_chg.get_batt_capacity_percent =
 		    msm_chg_get_batt_capacity_percent;
 
+	msm_chg.processing_delay = 1000;  /* [LGE_UPDAET : for battery remove] */
 	mutex_init(&msm_chg.status_lock);
 	INIT_DELAYED_WORK(&msm_chg.teoc_work, teoc);
 	INIT_DELAYED_WORK(&msm_chg.update_heartbeat_work, update_heartbeat);
+	INIT_DELAYED_WORK(&msm_chg.update_batt_remove_work, update_battery_remove_work);  /* [LGE_UPDAET : for battery remove] */
+
+/* [LGE_UPDATE_S kyungho.kong@lge.com] */
+#ifdef CONFIG_LGE_PM_TEMPERATURE_MONITOR
+  INIT_WORK(&msm_chg.monitor_work, msm_charger_temp_work);
+
+	/* init to something sane */
+	msm_chg.last_poll = alarm_get_elapsed_realtime();
+
+  wake_lock_init(&msm_chg.temp_wake_lock, WAKE_LOCK_SUSPEND, "msm_temp");
+
+  alarm_init(&msm_chg.alarm, ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP,
+			msm_charger_temperature_battery_alarm);
+  wake_lock(&msm_chg.temp_wake_lock);
+
+  queue_work(msm_chg.event_wq_thread, &msm_chg.monitor_work);
+#endif
+/* [LGE_UPDATE_E kyungho.kong@lge.com] */
+
+#ifdef CONFIG_LGE_PM
+     wake_lock_init(&adc_wake_lock, WAKE_LOCK_SUSPEND, "pmic8058_adc");
+#endif
+
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+  err = device_create_file(&pdev->dev, &dev_attr_at_charge);
+  err = device_create_file(&pdev->dev, &dev_attr_at_chcomp);
+  err = device_create_file(&pdev->dev, &dev_attr_at_fuelrst);
+  err = device_create_file(&pdev->dev, &dev_attr_at_fuelval);
+  err = device_create_file(&pdev->dev, &dev_attr_at_pmrst);
+  err = device_create_file(&pdev->dev, &dev_attr_at_batl);
+#endif
 
 	wake_lock_init(&msm_chg.wl, WAKE_LOCK_SUSPEND, "msm_charger");
 	return 0;
@@ -1072,6 +2821,15 @@ static int __devinit msm_charger_probe(struct platform_device *pdev)
 
 static int __devexit msm_charger_remove(struct platform_device *pdev)
 {
+#ifdef CONFIG_LGE_AT_COMMAND_ABOUT_POWER
+    device_remove_file(&pdev->dev, &dev_attr_at_charge);
+    device_remove_file(&pdev->dev, &dev_attr_at_chcomp);
+    device_remove_file(&pdev->dev, &dev_attr_at_fuelrst);
+    device_remove_file(&pdev->dev, &dev_attr_at_fuelval);
+    device_remove_file(&pdev->dev, &dev_attr_at_pmrst);
+    device_remove_file(&pdev->dev, &dev_attr_at_batl);
+#endif
+
 	wake_lock_destroy(&msm_chg.wl);
 	mutex_destroy(&msm_chg.status_lock);
 	power_supply_unregister(&msm_psy_batt);
@@ -1194,12 +2952,18 @@ static int msm_charger_suspend(struct device *dev)
 	cancel_delayed_work(&msm_chg.update_heartbeat_work);
 	mutex_lock(&msm_chg.status_lock);
 	handle_battery_removed();
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM 
+	pm8xxx_batt_alarm_config_lge();
+#endif
 	mutex_unlock(&msm_chg.status_lock);
 	return 0;
 }
 
 static int msm_charger_resume(struct device *dev)
 {
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+    int soc;
+#endif
 	dev_dbg(msm_chg.dev, "%s resumed\n", __func__);
 	msm_chg.stop_update = 0;
 	/* start updaing the battery powersupply every msm_chg.update_time
@@ -1210,6 +2974,31 @@ static int msm_charger_resume(struct device *dev)
 						     (msm_chg.update_time)));
 	mutex_lock(&msm_chg.status_lock);
 	handle_battery_inserted();
+
+#ifdef CONFIG_LGE_PM_BATTERY_ALARM
+	/* platform-bsp@lge.com (20111213) : for update uevent */
+	msm_charger_notify_event(NULL, CHG_BATT_REFRESH_EVENT); /* [LGE_UPDATE: for Fuel Gauge BUG] */
+	soc = max17040_get_battery_capacity_percent();
+#if 0 /* platform-bsp@lge.com (20111213) : for E1 */
+	pr_info("resume wake up fuel gauge is %d\n", soc);
+	if (soc ==14 || soc == 4 || soc == 0 ) {
+#else
+	//pr_info("resume wake up fuel gauge is %d\n", soc);
+	if (soc ==15 || soc == 5) {
+#endif
+		pr_info("wake lock.............\n");
+	}
+#if 1
+	pm8xxx_batt_alarm_config_lge();
+#else
+	else if (!is_chg_plugged_in()) {
+		pm8xxx_batt_alarm_config_lge();
+	}
+	else
+		pm8xxx_batt_alarm_enable(PM8XXX_BATT_ALARM_LOWER_COMPARATOR);
+#endif	
+#endif
+
 	mutex_unlock(&msm_chg.status_lock);
 	return 0;
 }

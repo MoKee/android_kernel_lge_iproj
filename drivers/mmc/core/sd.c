@@ -24,6 +24,8 @@
 #include "sd.h"
 #include "sd_ops.h"
 
+unsigned int g_sd_power_dircect_ctrl = 0;
+EXPORT_SYMBOL(g_sd_power_dircect_ctrl);
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
 	0,		0,		0,		0
@@ -1279,11 +1281,14 @@ int mmc_attach_sd(struct mmc_host *host)
 	while (retries) {
 		err = mmc_sd_init_card(host, host->ocr, NULL);
 		if (err) {
+			g_sd_power_dircect_ctrl = 1;
 			retries--;
 			mmc_power_off(host);
 			usleep_range(5000, 5500);
 			mmc_power_up(host);
 			mmc_select_voltage(host, host->ocr);
+			g_sd_power_dircect_ctrl = 0;
+			printk("\n(SD initialization) retry count=%d\n",retries);
 			continue;
 		}
 		break;

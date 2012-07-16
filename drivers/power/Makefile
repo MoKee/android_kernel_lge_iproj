@@ -49,3 +49,6 @@ obj-$(CONFIG_PM8XXX_CCADC)	+= pm8xxx-ccadc.o
 obj-$(CONFIG_PM8921_BMS)	+= pm8921-bms.o
 obj-$(CONFIG_PM8921_CHARGER)	+= pm8921-charger.o
 obj-$(CONFIG_LTC4088_CHARGER)	+= ltc4088-charger.o
+obj-$(CONFIG_LGE_WIRELESS_CHARGER_BQ24160) += bq24160-charger.o
+obj-$(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY) += bq24160-charger-dcm.o
+obj-$(CONFIG_LGE_SWITCHING_CHARGER_BQ24160_DOCOMO_ONLY) += lge_dcm_pmic8058-charger.o

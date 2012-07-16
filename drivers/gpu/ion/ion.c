@@ -478,6 +478,15 @@ static bool _ion_map(int *buffer_cnt, int *handle_cnt)
 
 static bool _ion_unmap(int *buffer_cnt, int *handle_cnt)
 {
+/* Sanity check for ion unmap. please keep track of below kernel message */
+#ifdef CONFIG_LGE_DEBUG
+    if((*handle_cnt == 0) && (*buffer_cnt == 0))
+    {
+        pr_err("%s: Oops!! ion_map is already freed. please check your driver!!\n", __func__);
+        return true;
+    }
+#endif
+
 	BUG_ON(*handle_cnt == 0);
 	(*handle_cnt)--;
 	if (*handle_cnt != 0)

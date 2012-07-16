@@ -3351,6 +3351,14 @@ static int tcp_is_local6(struct net *net, struct in6_addr *addr) {
 }
 #endif
 
+#define WORKAROUND_CRASH_TCP_NUKE_ADDR
+#ifdef WORKAROUND_CRASH_TCP_NUKE_ADDR
+#define IS_INVALID_ADDR_VALUE(x) unlikely((x) < (unsigned long)0xC0000000)
+static inline long __must_check IS_INVALID_ADDR(const void *ptr)
+{
+	return IS_INVALID_ADDR_VALUE((unsigned long)ptr);
+}
+#endif
 /*
  * tcp_nuke_addr - destroy all sockets on the given local address
  * if local address is the unspecified address (0.0.0.0 or ::), destroy all
@@ -3374,7 +3382,10 @@ int tcp_nuke_addr(struct net *net, struct sockaddr *addr)
 	} else {
 		return -EAFNOSUPPORT;
 	}
-
+#ifdef WORKAROUND_CRASH_TCP_NUKE_ADDR
+    printk(KERN_INFO "================tcp_nuke_addr================\n");
+    printk(KERN_INFO "   family %d \n", family);
+#endif
 	for (bucket = 0; bucket < tcp_hashinfo.ehash_mask; bucket++) {
 		struct hlist_nulls_node *node;
 		struct sock *sk;
@@ -3385,6 +3396,11 @@ restart:
 		sk_nulls_for_each(sk, node, &tcp_hashinfo.ehash[bucket].chain) {
 			struct inet_sock *inet = inet_sk(sk);
 
+#ifdef WORKAROUND_CRASH_TCP_NUKE_ADDR
+	    printk(KERN_INFO "tcp_nuke_addr : sk :  0x%p \n", sk);
+        if(IS_INVALID_ADDR(sk)|| IS_ERR_OR_NULL(sk))
+            break;
+#endif        
 			if (sysctl_ip_dynaddr && sk->sk_state == TCP_SYN_SENT)
 				continue;
 			if (sock_flag(sk, SOCK_DEAD))
@@ -3435,6 +3451,8 @@ restart:
 		}
 		spin_unlock_bh(lock);
 	}
-
+#ifdef WORKAROUND_CRASH_TCP_NUKE_ADDR
+    printk(KERN_INFO "================tcp_nuke_addr================\n");
+#endif
 	return 0;
 }

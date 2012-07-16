@@ -606,6 +606,14 @@ void hdmi_msm_cec_one_touch_play(void)
 }
 #endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT */
 
+#ifdef CONFIG_LGE_MHL_SII9244  /* I-Project :  chanhee.park@lge.com */
+
+boolean hdmi_msm_panel_power(void)
+{
+	return hdmi_msm_state->panel_power_on;
+}
+#endif 
+
 uint32 hdmi_msm_get_io_base(void)
 {
 	return (uint32)MSM_HDMI_BASE;
@@ -3640,17 +3648,17 @@ static int hdmi_msm_audio_off(void)
 	return 0;
 }
 
-
+/* modified AVIInfoFrame for 480p,576p - chanhee.park@lge.com*/
 static uint8 hdmi_msm_avi_iframe_lut[][16] = {
 /*	480p60	480i60	576p50	576i50	720p60	 720p50	1080p60	1080i60	1080p50
 	1080i50	1080p24	1080p30	1080p25	640x480p 480p60_16_9 576p50_4_3 */
 	{0x10,	0x10,	0x10,	0x10,	0x10,	 0x10,	0x10,	0x10,	0x10,
 	 0x10,	0x10,	0x10,	0x10,	0x10, 0x10, 0x10}, /*00*/
-	{0x18,	0x18,	0x28,	0x28,	0x28,	 0x28,	0x28,	0x28,	0x28,
+	{/*0x18*/0x28,	0x18,	0x28,	0x28,	0x28,	 0x28,	0x28,	0x28,	0x28,
 	 0x28,	0x28,	0x28,	0x28,	0x18, 0x28, 0x18}, /*01*/
 	{0x04,	0x04,	0x04,	0x04,	0x04,	 0x04,	0x04,	0x04,	0x04,
 	 0x04,	0x04,	0x04,	0x04,	0x88, 0x04, 0x04}, /*02*/
-	{0x02,	0x06,	0x11,	0x15,	0x04,	 0x13,	0x10,	0x05,	0x1F,
+	{/*0x02*/0x03,	0x06,	/*0x11*/0x12,	0x15,	0x04,	 0x13,	0x10,	0x05,	0x1F,
 	 0x14,	0x20,	0x22,	0x21,	0x01, 0x03, 0x11}, /*03*/
 	{0x00,	0x01,	0x00,	0x01,	0x00,	 0x00,	0x00,	0x00,	0x00,
 	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00}, /*04*/
@@ -4073,6 +4081,10 @@ static void hdmi_msm_hpd_off(void)
 	disable_irq(hdmi_msm_state->irq);
 
 	hdmi_msm_set_mode(FALSE);
+
+	/* for power consumtion. The value of 0x0308 makes power down jinho83.kim@lge.com */
+	HDMI_OUTP_ND(0x0308, 0x7F); /*0b01111111*/
+
 	hdmi_msm_state->hpd_initialized = FALSE;
 	hdmi_msm_powerdown_phy();
 	hdmi_msm_state->pd->cec_power(0);
@@ -4203,6 +4215,7 @@ static int hdmi_msm_power_on(struct platform_device *pdev)
 		mutex_unlock(&external_common_state_hpd_mutex);
 
 	hdmi_msm_dump_regs("HDMI-ON: ");
+	msleep(30); /* prevent power reset - jinho83.kim@lge.com */
 
 	DEV_INFO("power=%s DVI= %s\n",
 		hdmi_msm_is_power_on() ? "ON" : "OFF" ,
@@ -4554,7 +4567,12 @@ static int __init hdmi_msm_init(void)
 	}
 
 	external_common_state = &hdmi_msm_state->common;
+#ifdef CONFIG_LGE_MHL_SII9244	
+	external_common_state->video_resolution = HDMI_VFRMT_1920x1080p30_16_9;
+#else
 	external_common_state->video_resolution = HDMI_VFRMT_1920x1080p60_16_9;
+#endif
+
 #ifdef CONFIG_FB_MSM_HDMI_3D
 	external_common_state->switch_3d = hdmi_msm_switch_3d;
 #endif

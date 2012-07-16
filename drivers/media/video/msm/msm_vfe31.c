@@ -23,6 +23,9 @@
 #include "msm_vpe1.h"
 
 atomic_t irq_cnt;
+// jungki.kim@lge.com  2012-01-07  Skip 2 of preview frame to avoid flashing after capturing {
+static uint8_t skip_preview_frame=0;
+// jungki.kim@lge.com  2012-01-07  Skip 2 of preview frame to avoid flashing after capturing }
 
 #define CHECKED_COPY_FROM_USER(in) {					\
 	if (copy_from_user((in), (void __user *)cmd->value,		\
@@ -1430,6 +1433,9 @@ static int vfe31_capture(uint32_t num_frames_capture)
 
 	usleep(1000);
 	vfe31_start_common();
+//Start LGE_BSP_CAMERA : reset skip frame count after capture - jonghwan.ko@lge.com
+       skip_preview_frame = 0;
+//End  LGE_BSP_CAMERA : reset skip frame count after capture - jonghwan.ko@lge.com
 	return 0;
 }
 
@@ -3029,6 +3035,13 @@ static void vfe31_process_output_path_irq_0(uint32_t ping_pong)
 	/* we render frames in the following conditions:
 	1. Continuous mode and the free buffer is avaialable.
 	*/
+	// jungki.kim@lge.com  2012-01-07  Skip 2 of preview frame to avoid flashing after capturing {
+	if ( (VFE_MODE_OF_OPERATION_SNAPSHOT != vfe31_ctrl->operation_mode) && skip_preview_frame < 2) {
+		CDBG("[CAMERA]%s: vfe31_ctrl->operation_mode: %d. skip_preview_frame=%d SKIP!!\n",__func__, vfe31_ctrl->operation_mode, skip_preview_frame);
+		skip_preview_frame++;
+		return;
+	}
+	// jungki.kim@lge.com  2012-01-07  Skip 2 of preview frame to avoid flashing after capturing }
 	free_buf = vfe31_get_free_buf(&vfe31_ctrl->outpath.out0);
 
 	if (free_buf) {

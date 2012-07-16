@@ -23,6 +23,9 @@
 #ifndef __ASM_ARCH_MSM_IOMAP_8X60_H
 #define __ASM_ARCH_MSM_IOMAP_8X60_H
 
+//QCT kernel IO read patch for checking register corruption
+// #define QCT_IO_READ_ONLY_PATCH
+
 /* Physical base address and size of peripherals.
  * Ordered by the virtual base addresses they will be mapped at.
  *
@@ -125,6 +128,52 @@
 #define MSM_HDMI_BASE		IOMEM(0xFA800000)
 #define MSM_HDMI_PHYS		0x04A00000
 #define MSM_HDMI_SIZE		SZ_4K
+
+#ifdef QCT_IO_READ_ONLY_PATCH
+#define MSM_GFX2D0_BASE	IOMEM(0xFA800000)
+#define MSM_GFX2D0_PHYS	0x04100000       
+#define MSM_GFX2D0_SIZE SZ_4K                   
+                                                
+#define MSM_GFX2D1_BASE	IOMEM(0xFA801000)
+#define MSM_GFX2D1_PHYS	0x04200000       
+#define MSM_GFX2D1_SIZE SZ_4K                   
+                                                
+#define MSM_GFX3D_BASE	IOMEM(0xFA802000)        
+#define MSM_GFX3D_PHYS	0x04300000               
+#define MSM_GFX3D_SIZE	SZ_128K                  
+                                                
+#define MSM_MFC_BASE	IOMEM(0xFA822000)        
+#define MSM_MFC_PHYS	0x04400000               
+#define MSM_MFC_SIZE	SZ_1M                    
+                                                
+#define MSM_VFE_BASE	IOMEM(0xFA922000)        
+#define MSM_VFE_PHYS	0x04500000               
+#define MSM_VFE_SIZE	SZ_4K                    
+                                                
+#define MSM_MIPI_DSI_BASE	IOMEM(0xFA923000)
+#define MSM_MIPI_DSI_PHYS	0x04700000       
+#define MSM_MIPI_DSI_SIZE	SZ_4K            
+                                                
+#define MSM_MIPI_CSI0_BASE	IOMEM(0xFA924000)
+#define MSM_MIPI_CSI0_PHYS	0x04800000       
+#define MSM_MIPI_CSI0_SIZE	SZ_4K            
+                                                
+#define MSM_ROT_BASE	IOMEM(0xFA925000)        
+#define MSM_ROT_PHYS	0x04E00000               
+#define MSM_ROT_SIZE	SZ_256K                  
+                                                
+#define MSM_MDP_BASE	IOMEM(0xFA965000)        
+#define MSM_MDP_PHYS	0x05100000               
+#define MSM_MDP_SIZE	SZ_1M                    
+                                                
+#define MSM_VPE_BASE	IOMEM(0xFAA65000)        
+#define MSM_VPE_PHYS	0x05300000               
+#define MSM_VPE_SIZE	SZ_1M                    
+                                                
+#define MSM_MMSS_SFPB_CFG_BASE	IOMEM(0xFAB65000)
+#define MSM_MMSS_SFPB_CFG_PHYS	0x05700000       
+#define MSM_MMSS_SFPB_CFG_SIZE	SZ_4K            
+#endif
 
 #ifdef CONFIG_DEBUG_MSM8660_UART
 #define MSM_DEBUG_UART_BASE	0xFBC40000

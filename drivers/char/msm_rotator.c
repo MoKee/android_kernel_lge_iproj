@@ -118,12 +118,26 @@ struct msm_rotator_mem_planes {
 #define checkoffset(offset, size, max_size) \
 	((size) > (max_size) || (offset) > ((max_size) - (size)))
 
+/* QCT patch start for HDMI rotation of portrait video */
+struct msm_rotator_fd_info {
+	int pid;
+	int ref_cnt;
+	struct list_head list;
+};
+/* QCT patch end for HDMI rotation of portrait video */
+
 struct msm_rotator_dev {
 	void __iomem *io_base;
 	int irq;
 	struct msm_rotator_img_info *img_info[MAX_SESSIONS];
 	struct clk *core_clk;
-	int pid_list[MAX_SESSIONS];
+
+	/* QCT patch start for HDMI rotation of portrait video */
+//	int pid_list[MAX_SESSIONS];
+	struct msm_rotator_fd_info *fd_info[MAX_SESSIONS];
+	struct list_head fd_list;
+	/* QCT patch end for HDMI rotation of portrait video */
+
 	struct clk *pclk;
 	int rot_clk_state;
 	struct regulator *regulator;
@@ -1143,13 +1157,18 @@ static void msm_rotator_set_perf_level(u32 wh, u32 is_rgb)
 
 }
 
-static int msm_rotator_start(unsigned long arg, int pid)
+/* QCT patch start for HDMI rotation of portrait video */
+//static int msm_rotator_start(unsigned long arg, int pid)
+static int msm_rotator_start(unsigned long arg,
+			     struct msm_rotator_fd_info *fd_info)
+/* QCT patch end for HDMI rotation of portrait video */
 {
 	struct msm_rotator_img_info info;
 	int rc = 0;
 	int s, is_rgb = 0;
 	int first_free_index = INVALID_SESSION;
 	unsigned int dst_w, dst_h;
+       int need_resend=0; // QCT CN00817097 color inversion patch
 
 	if (copy_from_user(&info, (void __user *)arg, sizeof(info)))
 		return -EFAULT;
@@ -1223,8 +1242,14 @@ static int msm_rotator_start(unsigned long arg, int pid)
 			(info.session_id ==
 			(unsigned int)msm_rotator_dev->img_info[s]
 			)) {
+			
+			if(msm_rotator_dev->img_info[s]->dst.format!=info.dst.format) 
+                         need_resend=1; // QCT CN00817097 color inversion patch
 			*(msm_rotator_dev->img_info[s]) = info;
-			msm_rotator_dev->pid_list[s] = pid;
+			/* QCT patch start for HDMI rotation of portrait video */
+		//	msm_rotator_dev->pid_list[s] = pid;
+		    msm_rotator_dev->fd_info[s] = fd_info;
+			/* QCT patch end for HDMI rotation of portrait video */
 
 			if (msm_rotator_dev->last_session_idx == s)
 				msm_rotator_dev->last_session_idx =
@@ -1238,7 +1263,13 @@ static int msm_rotator_start(unsigned long arg, int pid)
 			first_free_index = s;
 	}
 
-	if ((s == MAX_SESSIONS) && (first_free_index != INVALID_SESSION)) {
+//	if ((s == MAX_SESSIONS) && (first_free_index != INVALID_SESSION)) {
+       if(need_resend){ // QCT CN00817097 color inversion patch
+           if (copy_to_user((void __user *)arg, &info, sizeof(info))) 
+               rc = -EFAULT; 
+           printk(KERN_ERR "j:%s error handle for rotator session\n", __func__); 
+       } 
+       else if ((s == MAX_SESSIONS) && (first_free_index != INVALID_SESSION)) {
 		/* allocate a session id */
 		msm_rotator_dev->img_info[first_free_index] =
 			kzalloc(sizeof(struct msm_rotator_img_info),
@@ -1252,7 +1283,10 @@ static int msm_rotator_start(unsigned long arg, int pid)
 		info.session_id = (unsigned int)
 			msm_rotator_dev->img_info[first_free_index];
 		*(msm_rotator_dev->img_info[first_free_index]) = info;
-		msm_rotator_dev->pid_list[first_free_index] = pid;
+        /* QCT patch start for HDMI rotation of portrait video */
+//		msm_rotator_dev->pid_list[first_free_index] = pid;
+		msm_rotator_dev->fd_info[first_free_index] = fd_info;
+		/* QCT patch end for HDMI rotation of portrait video */
 
 		if (copy_to_user((void __user *)arg, &info, sizeof(info)))
 			rc = -EFAULT;
@@ -1287,7 +1321,11 @@ static int msm_rotator_finish(unsigned long arg)
 					INVALID_SESSION;
 			kfree(msm_rotator_dev->img_info[s]);
 			msm_rotator_dev->img_info[s] = NULL;
-			msm_rotator_dev->pid_list[s] = 0;
+			/* QCT patch start for HDMI rotation of portrait video */
+	//		msm_rotator_dev->pid_list[s] = 0;
+        	msm_rotator_dev->fd_info[s] = NULL;
+			/* QCT patch end for HDMI rotation of portrait video */
+	
 			break;
 		}
 	}
@@ -1305,24 +1343,61 @@ static int msm_rotator_finish(unsigned long arg)
 static int
 msm_rotator_open(struct inode *inode, struct file *filp)
 {
-	int *id;
+    /* QCT patch start for HDMI rotation of portrait video */
+//	int *id;
 	int i;
+	struct msm_rotator_fd_info *tmp, *fd_info = NULL;
+	/* QCT patch end for HDMI rotation of portrait video */
 
 	if (filp->private_data)
 		return -EBUSY;
 
 	mutex_lock(&msm_rotator_dev->rotator_lock);
-	id = &msm_rotator_dev->pid_list[0];
-	for (i = 0; i < MAX_SESSIONS; i++, id++) {
-		if (*id == 0)
+
+	/* QCT patch start for HDMI rotation of portrait video */
+//	id = &msm_rotator_dev->pid_list[0];
+//	for (i = 0; i < MAX_SESSIONS; i++, id++) {
+//		if (*id == 0)
+	for (i = 0; i < MAX_SESSIONS; i++) {
+		if (msm_rotator_dev->fd_info[i] == NULL)
+	/* QCT patch end for HDMI rotation of portrait video */
+
 			break;
 	}
+	/* QCT patch start for HDMI rotation of portrait video */
+	// mutex_unlock(&msm_rotator_dev->rotator_lock); 
+
+//	if (i == MAX_SESSIONS)
+		if (i == MAX_SESSIONS) {
 	mutex_unlock(&msm_rotator_dev->rotator_lock);
 
-	if (i == MAX_SESSIONS)
 		return -EBUSY;
+	}
+	
+	
+//	filp->private_data = (void *)current->pid;
+	list_for_each_entry(tmp, &msm_rotator_dev->fd_list, list) {
+		if (tmp->pid == current->pid) {
+			fd_info = tmp;
+			break;
+		}
+	}
+		if (!fd_info) {
+		fd_info = kzalloc(sizeof(*fd_info), GFP_KERNEL);
+		if (!fd_info) {
+			mutex_unlock(&msm_rotator_dev->rotator_lock);
+			pr_err("%s: insufficient memory to alloc resources\n",
+				   __func__);
+			return -ENOMEM;
+		}
+		list_add(&fd_info->list, &msm_rotator_dev->fd_list);
+		fd_info->pid = current->pid;
+	}
+	fd_info->ref_cnt++;
+	mutex_unlock(&msm_rotator_dev->rotator_lock);
+	filp->private_data = fd_info;
 
-	filp->private_data = (void *)current->pid;
+		/* QCT patch end for HDMI rotation of portrait video */
 
 	return 0;
 }
@@ -1330,21 +1405,47 @@ msm_rotator_open(struct inode *inode, struct file *filp)
 static int
 msm_rotator_close(struct inode *inode, struct file *filp)
 {
-	int s;
-	int pid;
+	struct msm_rotator_fd_info *fd_info;  // QCT patch for HDMI rotation of portrait video
 
-	pid = (int)filp->private_data;
+	int s;
+
+	/* QCT patch start for HDMI rotation of portrait video */
+	// int pid;
+
+	// pid = (int)filp->private_data;
+	fd_info = (struct msm_rotator_fd_info *)filp->private_data;
+
 	mutex_lock(&msm_rotator_dev->rotator_lock);
+	if (--fd_info->ref_cnt > 0) {
+		mutex_unlock(&msm_rotator_dev->rotator_lock);
+		return 0;
+	}
+	/* QCT patch end for HDMI rotation of portrait video */
+	
 	for (s = 0; s < MAX_SESSIONS; s++) {
 		if (msm_rotator_dev->img_info[s] != NULL &&
-			msm_rotator_dev->pid_list[s] == pid) {
+			
+			/* QCT patch start for HDMI rotation of portrait video */
+//			msm_rotator_dev->pid_list[s] == pid) {
+				msm_rotator_dev->fd_info[s] == fd_info) {
+				pr_debug("%s: freeing rotator session %p (pid %d)\n",
+					 __func__, msm_rotator_dev->img_info[s],
+					 fd_info->pid);
+			/* QCT patch end for HDMI rotation of portrait video */	
+
 			kfree(msm_rotator_dev->img_info[s]);
 			msm_rotator_dev->img_info[s] = NULL;
+			msm_rotator_dev->fd_info[s] = NULL;  // QCT patch for HDMI rotation of portrait video
 			if (msm_rotator_dev->last_session_idx == s)
 				msm_rotator_dev->last_session_idx =
 					INVALID_SESSION;
 		}
 	}
+	/* QCT patch start for HDMI rotation of portrait video */
+	list_del(&fd_info->list);
+	kfree(fd_info);	
+	/* QCT patch end for HDMI rotation of portrait video */
+
 	mutex_unlock(&msm_rotator_dev->rotator_lock);
 
 	return 0;
@@ -1353,16 +1454,26 @@ msm_rotator_close(struct inode *inode, struct file *filp)
 static long msm_rotator_ioctl(struct file *file, unsigned cmd,
 						 unsigned long arg)
 {
-	int pid;
+    /* QCT patch start for HDMI rotation of portrait video */ 
+//	int pid;
+	struct msm_rotator_fd_info *fd_info;
+	/* QCT patch end for HDMI rotation of portrait video */
 
 	if (_IOC_TYPE(cmd) != MSM_ROTATOR_IOCTL_MAGIC)
 		return -ENOTTY;
 
-	pid = (int)file->private_data;
+	/* QCT patch start for HDMI rotation of portrait video */
+//	pid = (int)file->private_data;
+	fd_info = (struct msm_rotator_fd_info *)file->private_data;
+	/* QCT patch start for HDMI rotation of portrait video */
 
 	switch (cmd) {
 	case MSM_ROTATOR_IOCTL_START:
-		return msm_rotator_start(arg, pid);
+		/* QCT patch start for HDMI rotation of portrait video */
+		// return msm_rotator_start(arg, pid);
+		return msm_rotator_start(arg, fd_info);
+		/* QCT patch end for HDMI rotation of portrait video */
+		
 	case MSM_ROTATOR_IOCTL_ROTATE:
 		return msm_rotator_do_rotate(arg);
 	case MSM_ROTATOR_IOCTL_FINISH:
@@ -1405,6 +1516,7 @@ static int __devinit msm_rotator_probe(struct platform_device *pdev)
 
 	msm_rotator_dev->imem_owner = IMEM_NO_OWNER;
 	mutex_init(&msm_rotator_dev->imem_lock);
+	INIT_LIST_HEAD(&msm_rotator_dev->fd_list);  // QCT patch for HDMI rotation of portrait video
 	msm_rotator_dev->imem_clk_state = CLK_DIS;
 	INIT_DELAYED_WORK(&msm_rotator_dev->imem_clk_work,
 			  msm_rotator_imem_clk_work_f);

@@ -21,6 +21,11 @@
 #include <mach/rpm.h>
 #include "msm_bus_core.h"
 
+// to ensure guaranteed bandwidth assignments to MDP ports,
+#if defined(CONFIG_MACH_LGE_I_BOARD_SKT)
+#define DEFINE_BW_TIER1
+#endif
+
 #define NMASTERS 39
 #define NSLAVES 68
 #define NFAB_8660 5
@@ -79,6 +84,9 @@ enum msm_bus_8660_master_ports_type {
 };
 
 static int tier2[] = {MSM_BUS_BW_TIER2,};
+#ifdef DEFINE_BW_TIER1
+static int tier1[] = {MSM_BUS_BW_TIER1,};
+#endif
 
 enum msm_bus_8660_slave_ports_type {
 	MSM_BUS_SLAVE_PORT_SMI = 0,
@@ -401,15 +409,25 @@ static struct msm_bus_node_info mmss_fabric_info[]  = {
 		.id = MSM_BUS_MASTER_MDP_PORT0,
 		.masterp = mport_mdp_port0,
 		.num_mports = ARRAY_SIZE(mport_mdp_port0),
+#ifdef DEFINE_BW_TIER1
+		.tier = tier1,
+		.num_tiers = ARRAY_SIZE(tier1),
+#else
 		.tier = tier2,
 		.num_tiers = ARRAY_SIZE(tier2),
+#endif
 	},
 	{
 		.id = MSM_BUS_MASTER_MDP_PORT1,
 		.masterp = mport_mdp_port1,
 		.num_mports = ARRAY_SIZE(mport_mdp_port1),
+#ifdef DEFINE_BW_TIER1
+		.tier = tier1,
+		.num_tiers = ARRAY_SIZE(tier1),
+#else
 		.tier = tier2,
 		.num_tiers = ARRAY_SIZE(tier2),
+#endif
 	},
 	{
 		.id = MSM_BUS_MMSS_MASTER_ADM1_PORT0,

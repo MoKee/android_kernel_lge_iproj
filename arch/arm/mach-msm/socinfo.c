@@ -254,6 +254,29 @@ static struct socinfo_v1 dummy_socinfo = {
 	.build_id = "Dummy socinfo placeholder"
 };
 
+/*hyungsic.you@lge.com for batt auth */
+#ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
+u16 *batt_id = 0;
+uint16_t battery_info_get(void)
+{
+    batt_id = smem_alloc(SMEM_BATT_INFO, sizeof(batt_id));
+
+    if( batt_id == NULL ) return 0 ;
+    return *batt_id;
+}
+EXPORT_SYMBOL(battery_info_get);
+
+u16 *poweron_st = 0;
+uint16_t power_on_status_info_get(void)
+{
+    poweron_st = smem_alloc(SMEM_POWER_ON_STATUS_INFO, sizeof(poweron_st));
+
+    if( poweron_st == NULL ) return 0 ;
+    return *poweron_st;
+}
+EXPORT_SYMBOL(power_on_status_info_get);
+#endif
+
 uint32_t socinfo_get_id(void)
 {
 	return (socinfo) ? socinfo->v1.id : 0;
@@ -728,6 +751,7 @@ const int get_core_count(void)
 	return ((read_cpuid_id() >> 4) & 3) + 1;
 }
 
+EXPORT_SYMBOL(read_msm_cpu_type);
 const int read_msm_cpu_type(void)
 {
 	if (machine_is_msm8960_sim() || machine_is_msm8960_rumi3())

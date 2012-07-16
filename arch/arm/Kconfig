@@ -226,6 +226,9 @@ config GENERIC_BUG
 	def_bool y
 	depends on BUG
 
+#platform-bsp@lge.com 2011.01
+source "lge/Kconfig"
+
 source "init/Kconfig"
 
 source "kernel/Kconfig.freezer"

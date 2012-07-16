@@ -32,6 +32,12 @@
 #include <mach/subsystem_notif.h>
 #include <mach/subsystem_restart.h>
 
+/* neo.kang@lge.com 2011-06-01
+ * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+#include <mach/restart.h>
+#endif
+
 #include "smd_private.h"
 
 struct subsys_soc_restart_order {
@@ -346,10 +352,15 @@ static int subsystem_restart_thread(void *data)
 	 * sequence for these subsystems. In the latter case, panic and bail
 	 * out, since a subsystem died in its powerup sequence.
 	 */
-	if (!mutex_trylock(powerup_lock))
+	if (!mutex_trylock(powerup_lock)) {
+		/* neo.kang@lge.com 2011-06-01
+		 * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+		msm_set_restart_mode(SUB_THD_F_PWR);
+#endif
 		panic("%s[%p]: Subsystem died during powerup!",
 						__func__, current);
-
+	}
 	do_epoch_check(subsys);
 
 	/* Now it is necessary to take the registration lock. This is because
@@ -373,9 +384,15 @@ static int subsystem_restart_thread(void *data)
 		pr_info("[%p]: Shutting down %s\n", current,
 			restart_list[i]->name);
 
-		if (restart_list[i]->shutdown(subsys) < 0)
+		if (restart_list[i]->shutdown(subsys) < 0) {
+		/* neo.kang@lge.com 2011-06-01
+		 * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+			msm_set_restart_mode(SUB_THD_F_SD);
+#endif
 			panic("subsys-restart: %s[%p]: Failed to shutdown %s!",
 				__func__, current, restart_list[i]->name);
+	}
 	}
 
 	_send_notification_to_order(restart_list, restart_list_count,
@@ -392,7 +409,11 @@ static int subsystem_restart_thread(void *data)
 	for (i = 0; i < restart_list_count; i++) {
 		if (!restart_list[i])
 			continue;
-
+#if 1//platform-bsp@lge.com : only ramdump that cause a system crash
+		if(restart_level==RESET_SUBSYS_COUPLED)
+			if (strncmp(restart_list[i]->name, subsys->name, SUBSYS_NAME_MAX_LENGTH)) 
+				continue;
+#endif
 		if (restart_list[i]->ramdump)
 			if (restart_list[i]->ramdump(enable_ramdumps,
 							subsys) < 0)
@@ -412,9 +433,15 @@ static int subsystem_restart_thread(void *data)
 		pr_info("[%p]: Powering up %s\n", current,
 					restart_list[i]->name);
 
-		if (restart_list[i]->powerup(subsys) < 0)
+		if (restart_list[i]->powerup(subsys) < 0) {
+		/* neo.kang@lge.com 2011-06-01
+		 * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+			msm_set_restart_mode(SUB_THD_F_PWR);
+#endif
 			panic("%s[%p]: Failed to powerup %s!", __func__,
 				current, restart_list[i]->name);
+	}
 	}
 
 	_send_notification_to_order(restart_list,
@@ -433,6 +460,20 @@ static int subsystem_restart_thread(void *data)
 	kfree(data);
 	do_exit(0);
 }
+
+//wj1208.jo@lge.com, 2011-09-20, [MDM BSP] for ULS display
+#ifdef CONFIG_LGE_SDIO_DEBUG_CH
+// for subsystem discrimination
+enum {
+	ULS_NO_SUBSYSTEM,			// no subsystem crash was occurred.
+	ULS_SUBSYSTEM_MDM,		// mdm  subsystem crash was occurred.
+	ULS_SUBSYSTEM_MODEM,		// AP 8k modem subsystem crash was occured.
+	ULS_SUBSYSTEM_LPASS,		// AP lpass subsystem crash was occured.
+	ULS_SUBSYSTEM_OTHER		// this should not be used.
+};
+int uls_the_kind_of_subsys = ULS_NO_SUBSYSTEM;	// store current subsystem
+#endif /* CONFIG_LGE_SDIO_DEBUG_CH */
+//wj1208.jo@lge.com, 2011-09-20, [MDM BSP] for ULS display
 
 int subsystem_restart(const char *subsys_name)
 {
@@ -457,6 +498,31 @@ int subsystem_restart(const char *subsys_name)
 		pr_warn("Unregistered subsystem %s!\n", subsys_name);
 		return -EINVAL;
 	}
+//wj1208.jo@lge.com, 2011-09-20, [MDM BSP] for ULS display	
+#ifdef CONFIG_LGE_SDIO_DEBUG_CH	
+{
+	pr_info("subsys_name = %s", subsys_name);
+	if (strncmp("external_modem", subsys_name, 14) == 0)
+	{
+		uls_the_kind_of_subsys = ULS_SUBSYSTEM_MDM;		
+	}
+	else if (strncmp("modem", subsys_name, 5) == 0)
+	{
+		uls_the_kind_of_subsys = ULS_SUBSYSTEM_MODEM;			
+	}
+	else if (strncmp("lpass", subsys_name, 5) == 0)
+	{
+		uls_the_kind_of_subsys = ULS_SUBSYSTEM_LPASS;
+	}
+	else // this should not be happened.
+	{	
+		uls_the_kind_of_subsys = ULS_SUBSYSTEM_OTHER;	
+		pr_info("%s: Unkown subsystem: Restart sequence requested for  %s\n",
+				__func__, subsys_name);
+	}
+}
+#endif /*CONFIG_LGE_SDIO_DEBUG_CH*/
+//wj1208.jo@lge.com, 2011-09-20, [MDM BSP] for ULS display		
 
 	if (restart_level != RESET_SOC) {
 		data = kzalloc(sizeof(struct restart_thread_data), GFP_KERNEL);
@@ -490,18 +556,44 @@ int subsystem_restart(const char *subsys_name)
 		 */
 		tsk = kthread_run(subsystem_restart_thread, data,
 				"subsystem_restart_thread");
-		if (IS_ERR(tsk))
+		if (IS_ERR(tsk)) {
+			/* neo.kang@lge.com 2011-06-01
+			 * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+			msm_set_restart_mode(SUB_UNAB_THD);
+#endif
 			panic("%s: Unable to create thread to restart %s",
 				__func__, subsys->name);
+		}
 
 		break;
 
 	case RESET_SOC:
+		/* neo.kang@lge.com 2011-06-01
+		 * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+		/* tei.kim@lge.com 2011-10-13
+		 * detect subsystem name in error handler*/
+		if (!strncmp(subsys->name, "modem", 5)) {
+			msm_set_restart_mode(SUB_RESET_SOC_8K);
+		} else if (!strncmp(subsys->name, "external_modem", 14)) {
+			msm_set_restart_mode(SUB_RESET_SOC_9K);
+		} else if (!strncmp(subsys->name, "lpass", 5)) {
+			msm_set_restart_mode(SUB_RESET_SOC_Q6);
+		} else {
+			msm_set_restart_mode(SUB_RESET_SOC);
+		}
+#endif
 		panic("subsys-restart: Resetting the SoC - %s crashed.",
 			subsys->name);
 		break;
 
 	default:
+		/* neo.kang@lge.com 2011-06-01
+		 * add the error handler */
+#if defined(CONFIG_LGE_ERROR_HANDLER)
+		msm_set_restart_mode(SUB_UNKNOWN);
+#endif
 		panic("subsys-restart: Unknown restart level!\n");
 	break;
 
