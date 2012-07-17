@@ -139,7 +139,7 @@ static int gFirstScan = false;
 /* Set this to 1 to use a seperate interface (p2p0)
  *  for p2p operations.
  */
-#define ENABLE_P2P_INTERFACE	0
+#define ENABLE_P2P_INTERFACE	1
 
 /* This is to override regulatory domains defined in cfg80211 module (reg.c)
  * By default world regulatory domain defined in reg.c puts the flags NL80211_RRF_PASSIVE_SCAN
@@ -3837,7 +3837,9 @@ wl_cfg80211_mgmt_tx(struct wiphy *wiphy, struct net_device *ndev,
 	wifi_p2p_pub_act_frame_t *act_frm = NULL;
 	wifi_p2p_action_frame_t *p2p_act_frm = NULL;
 	wifi_p2psd_gas_pub_act_frame_t *sd_act_frm = NULL;
+#if WL_DBG_LEVEL
 	s8 eabuf[ETHER_ADDR_STR_LEN];
+#endif
 
 	WL_DBG(("Enter \n"));
 

@@ -1813,7 +1813,7 @@ dhd_dpc_thread(void *data)
 
 	/*  signal: thread has started */
 	complete(&tsk->completed);
-#ifdef CONFIG_PRODUCT_I_ATNT
+#ifdef CONFIG_MACH_LGE_I_BOARD_ATNT
 	{
 		struct cpumask cpus;
 		DHD_ERROR(("%s: Enter  Set CPU Affinity only to cpu0\n", __func__));
@@ -2500,7 +2500,7 @@ exit:
 #endif
 // LGE_CHANGE_E, freddy.jang, 20111213, for ATCMD & Hidden Menu
 
-#ifdef CONFIG_PRODUCT_I_ATNT
+#ifdef CONFIG_MACH_LGE_I_BOARD_ATNT
 #include "../../../../../../../lge/include/lg_power_common.h"
 extern int pm_chg_vbatt_fet_on(int value);
 extern acc_cable_type get_ext_cable_type_value(void);
@@ -2531,7 +2531,7 @@ dhd_open(struct net_device *net)
 	//save_firmware_path();
 	// LGE_CHANGE_E, freddy.jang, 20111213, for ATCMD & Hidden Menu
 
-#ifdef CONFIG_PRODUCT_I_ATNT
+#ifdef CONFIG_MACH_LGE_I_BOARD_ATNT
 	// bill.jung@lge.com - ATNT AT Command Issue. WiFi driver must turn on chip's power only when At command mode.
 	if( get_ext_cable_type_value() == LT_CABLE_56K || get_ext_cable_type_value() == LT_CABLE_130K  )
 	{
