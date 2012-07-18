@@ -699,6 +699,8 @@ static int pm8xxx_tm_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct pm8xxx_tm_chip *chip = platform_get_drvdata(pdev);
 
+        if (chip == NULL) return 0;
+
 	/* Clear override bits in suspend to allow hardware control */
 	pm8xxx_tm_shutdown_override(chip, SOFTWARE_OVERRIDE_DISABLED);
 
@@ -709,6 +711,8 @@ static int pm8xxx_tm_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct pm8xxx_tm_chip *chip = platform_get_drvdata(pdev);
+
+        if (chip == NULL) return 0;
 
 	/* Override hardware actions so software can control */
 	if (chip->mode == THERMAL_DEVICE_ENABLED)
