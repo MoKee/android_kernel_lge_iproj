@@ -1,7 +1,7 @@
 obj-y += rtac.o
 
 ifdef CONFIG_ARCH_MSM8X60
-ifeq ($(TARGET_PRODUCT),i_skt)
+ifdef CONFIG_MACH_LGE_I_BOARD_SKT
 obj-y += audio_dev_ctl_domestic.o
 else ifeq ($(TARGET_PRODUCT),i_lgu)
 obj-y += audio_dev_ctl_domestic.o
@@ -13,7 +13,7 @@ obj-$(CONFIG_TIMPANI_CODEC) += snddev_icodec.o
 obj-y += snddev_ecodec.o snddev_mi2s.o snddev_virtual.o
 obj-y += pcm_out.o pcm_in.o fm.o
 obj-y += audio_lpa.o
-ifeq ($(TARGET_PRODUCT),i_skt)
+ifdef CONFIG_MACH_LGE_I_BOARD_SKT
 obj-y += q6voice_domestic.o
 else ifeq ($(TARGET_PRODUCT),i_lgu)
 obj-y += q6voice_domestic.o

@@ -3840,7 +3840,9 @@ wl_cfg80211_mgmt_tx(struct wiphy *wiphy, struct net_device *ndev,
 	wifi_p2p_pub_act_frame_t *act_frm = NULL;
 	wifi_p2p_action_frame_t *p2p_act_frm = NULL;
 	wifi_p2psd_gas_pub_act_frame_t *sd_act_frm = NULL;
+#if WL_DBG_LEVEL
 	s8 eabuf[ETHER_ADDR_STR_LEN];
+#endif
 
 	WL_DBG(("Enter \n"));
 

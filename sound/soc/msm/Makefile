@@ -26,7 +26,7 @@ obj-$(CONFIG_SND_SOC_MSM8X60_DAI) += snd-soc-msm8x60-dai.o
 snd-soc-msm8x60-pcm-objs := msm8x60-pcm.o
 obj-$(CONFIG_SND_SOC_MSM8X60_PCM) += snd-soc-msm8x60-pcm.o
 
-ifeq ($(TARGET_PRODUCT),i_skt)
+ifdef CONFIG_MACH_LGE_I_BOARD_SKT
 snd-soc-msm8x60-objs := msm8x60_domestic.o
 else ifeq ($(TARGET_PRODUCT),i_lgu)
 snd-soc-msm8x60-objs := msm8x60_domestic.o
