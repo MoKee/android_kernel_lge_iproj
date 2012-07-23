@@ -1,25 +1,25 @@
 obj-y += rtac.o
 
 ifdef CONFIG_ARCH_MSM8X60
-ifdef CONFIG_MACH_LGE_I_BOARD_SKT
-obj-y += audio_dev_ctl_domestic.o
-else ifeq ($(TARGET_PRODUCT),i_lgu)
-obj-y += audio_dev_ctl_domestic.o
-else
+#ifdef CONFIG_MACH_LGE_I_BOARD_SKT
+#obj-y += audio_dev_ctl_domestic.o
+#else ifeq ($(TARGET_PRODUCT),i_lgu)
+#obj-y += audio_dev_ctl_domestic.o
+#else
 obj-y += audio_dev_ctl.o
-endif 
+#endif 
 obj-$(CONFIG_MACH_MSM8X60_SURF) += board-msm8x60-audio.o
 obj-$(CONFIG_TIMPANI_CODEC) += snddev_icodec.o
 obj-y += snddev_ecodec.o snddev_mi2s.o snddev_virtual.o
 obj-y += pcm_out.o pcm_in.o fm.o
 obj-y += audio_lpa.o
-ifdef CONFIG_MACH_LGE_I_BOARD_SKT
-obj-y += q6voice_domestic.o
-else ifeq ($(TARGET_PRODUCT),i_lgu)
-obj-y += q6voice_domestic.o
-else
+#ifdef CONFIG_MACH_LGE_I_BOARD_SKT
+#obj-y += q6voice_domestic.o
+#else ifeq ($(TARGET_PRODUCT),i_lgu)
+#obj-y += q6voice_domestic.o
+#else
 obj-y += q6voice.o
-endif 
+#endif 
 obj-y += snddev_hdmi.o
 obj-y += audio_mvs.o
 obj-$(CONFIG_FB_MSM_HDMI_MSM_PANEL) += lpa_if_hdmi.o
