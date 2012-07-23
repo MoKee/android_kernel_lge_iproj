@@ -3735,7 +3735,7 @@ static struct pm8xxx_keypad_platform_data i_skt_keypad_data = {
 };
 
 static struct pm8xxx_rtc_platform_data pm8058_rtc_pdata = {
-	.rtc_write_enable = false,
+	.rtc_write_enable = true,
 	.rtc_alarm_powerup = false,
 };
 
