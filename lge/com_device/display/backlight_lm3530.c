@@ -42,7 +42,11 @@ __attribute__((weak)) int usb_cable_info;
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
-   static struct early_suspend bl_lm3530_early_suspend;
+static struct {
+   struct early_suspend bl_lm3530_early_suspend;
+   short suspended;
+} lm3530_suspension;
+
 static void bl_early_suspend(struct early_suspend *h);
 static void bl_early_resume(struct early_suspend *h);
 #endif
@@ -154,6 +158,8 @@ else if(level >MAX_LEVEL)
 
 void lm3530_backlight_on(int level)
 {
+	if (lm3530_suspension.suspended)
+		return;
 
 	if(backlight_status == BL_OFF){
 		lm3530_hw_reset();
@@ -295,12 +301,18 @@ static struct backlight_ops lm3530_bl_ops = {
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void bl_early_suspend(struct early_suspend *h)
 {
-	lm3530_backlight_off();
+	if (!lm3530_suspension.suspended) {
+		lm3530_backlight_off();
+		lm3530_suspension.suspended = 1;
+	}
 }
 
 static void bl_early_resume(struct early_suspend *h)
 {
-	lm3530_backlight_on(saved_main_lcd_level);
+	if (lm3530_suspension.suspended) {
+		lm3530_suspension.suspended = 0;
+		lm3530_backlight_on(saved_main_lcd_level);
+	}
 }
 #endif
  
@@ -355,10 +367,11 @@ static int lm3530_probe(struct i2c_client *i2c_dev, const struct i2c_device_id *
 	err = device_create_file(&i2c_dev->dev, &dev_attr_lm3530_backlight_on_off);
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
-        bl_lm3530_early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB;
-        bl_lm3530_early_suspend.suspend = bl_early_suspend;
-        bl_lm3530_early_suspend.resume = bl_early_resume;
-        register_early_suspend(&bl_lm3530_early_suspend);
+        lm3530_suspension.bl_lm3530_early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB;
+        lm3530_suspension.bl_lm3530_early_suspend.suspend = bl_early_suspend;
+        lm3530_suspension.bl_lm3530_early_suspend.resume = bl_early_resume;
+        register_early_suspend(&lm3530_suspension.bl_lm3530_early_suspend);
+	lm3530_suspension.suspended = 0;
 #endif
 
 	return 0;
@@ -383,8 +396,8 @@ static int lm3530_remove(struct i2c_client *i2c_dev)
 static struct i2c_driver main_lm3530_driver = {
 	.probe = lm3530_probe,
 	.remove = lm3530_remove,
-	.suspend = lm3530_bl_suspend,
-	.resume = lm3530_bl_resume,
+	.suspend = NULL,
+	.resume = NULL,
 	.id_table = lm3530_bl_id, 
 	.driver = {
 		.name = I2C_BL_NAME,
