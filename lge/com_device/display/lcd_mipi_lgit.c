@@ -266,7 +266,7 @@ extern int mipi_lgit_lcd_ief_off(void)
 	if(local_mfd0->panel_power_on && is_ief_on) {	
 		mutex_lock(&local_mfd0->dma->ov_mutex);
 		MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-		mipi_dsi_cmds_tx(local_mfd0, &lgit_tx_buf, lgit_power_on_set_camera, ARRAY_SIZE(lgit_power_on_set_camera));
+		mipi_dsi_cmds_tx(&lgit_tx_buf, lgit_power_on_set_camera, ARRAY_SIZE(lgit_power_on_set_camera));
 			
 		is_ief_on = 0;
 		printk("%s, %d\n", __func__,is_ief_on);
@@ -283,7 +283,7 @@ extern int mipi_lgit_lcd_ief_on(void)
 	if(local_mfd0->panel_power_on && !is_ief_on) {
 		mutex_lock(&local_mfd0->dma->ov_mutex);
 		MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-		mipi_dsi_cmds_tx(local_mfd0, &lgit_tx_buf, lgit_power_off_set_camera, ARRAY_SIZE(lgit_power_off_set_camera)); 
+		mipi_dsi_cmds_tx(&lgit_tx_buf, lgit_power_off_set_camera, ARRAY_SIZE(lgit_power_off_set_camera)); 
 							
 		is_ief_on = 1;
 		printk("%s, %d\n", __func__,is_ief_on);
@@ -328,13 +328,13 @@ static int mipi_lgit_lcd_on(struct platform_device *pdev)
 	mipi_lgit_lcd_reset();
 
 	if(lge_bd_rev < LGE_REV_C)
-		mipi_dsi_cmds_tx(mfd, &lgit_tx_buf, lgit_power_on_set, ARRAY_SIZE(lgit_power_on_set));
+		mipi_dsi_cmds_tx(&lgit_tx_buf, lgit_power_on_set, ARRAY_SIZE(lgit_power_on_set));
 	else			
-		mipi_dsi_cmds_tx(mfd, &lgit_tx_buf, lgit_power_on_set_2P5, ARRAY_SIZE(lgit_power_on_set_2P5));
+		mipi_dsi_cmds_tx(&lgit_tx_buf, lgit_power_on_set_2P5, ARRAY_SIZE(lgit_power_on_set_2P5));
 		
 #ifdef LGIT_IEF_SWITCH
 	if(!is_ief_on) // if camera is on, turn ief off
-		mipi_dsi_cmds_tx(mfd, &lgit_tx_buf, lgit_power_on_set_camera, ARRAY_SIZE(lgit_power_on_set_camera));
+		mipi_dsi_cmds_tx(&lgit_tx_buf, lgit_power_on_set_camera, ARRAY_SIZE(lgit_power_on_set_camera));
 #endif
 
 	printk(KERN_INFO "exting %s .. \n", __func__);
@@ -353,7 +353,7 @@ static int mipi_lgit_lcd_off(struct platform_device *pdev)
 
 	printk(KERN_INFO "entering %s .. \n", __func__);
 
-	mipi_dsi_cmds_tx(mfd, &lgit_tx_buf, lgit_display_off_deep_standby_set, ARRAY_SIZE(lgit_display_off_deep_standby_set));
+	mipi_dsi_cmds_tx(&lgit_tx_buf, lgit_display_off_deep_standby_set, ARRAY_SIZE(lgit_display_off_deep_standby_set));
 	
 	gpio_tlmm_config(GPIO_CFG(LCD_RESET_N, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),GPIO_CFG_ENABLE);
 	gpio_set_value(LCD_RESET_N,0);
