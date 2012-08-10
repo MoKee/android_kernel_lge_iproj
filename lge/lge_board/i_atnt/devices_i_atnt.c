@@ -140,6 +140,15 @@ static void charm_ap2mdm_kpdpwr_off(void)
 	}
 }
 
+#ifdef CONFIG_LGE_MDM_PMIC_8028
+static void charm_force_reset(void)
+{
+	gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
+	msleep(4000);
+	gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
+}
+#endif
+
 static struct resource charm_resources[] = {
 	/* MDM2AP_ERRFATAL */
 	{
@@ -158,6 +167,9 @@ static struct resource charm_resources[] = {
 static struct charm_platform_data mdm_platform_data = {
 	.charm_modem_on		= charm_ap2mdm_kpdpwr_on,
 	.charm_modem_off	= charm_ap2mdm_kpdpwr_off,
+#ifdef CONFIG_LGE_MDM_PMIC_8028
+	.charm_force_reset      = charm_force_reset,
+#endif 
 };
 
 struct platform_device msm_charm_modem = {
