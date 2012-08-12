@@ -35,7 +35,6 @@
 
 // lcd black out workaround
 #define MDP4_ERROR
-extern int dma_tx_timeout;
 
 struct mdp4_statistic mdp4_stat;
 
@@ -49,10 +48,6 @@ unsigned is_mdp4_hw_reset(void)
 		hw_reset = !inpdw(MDP_BASE + 0x003c);
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 	}
-
-	// lcd black out workaround
-	if(dma_tx_timeout)
-		hw_reset = 1;
 
 	return hw_reset;
 }
@@ -259,20 +254,13 @@ void mdp4_hw_init(void)
 
 	mdp4_update_perf_level(OVERLAY_PERF_LEVEL4);
 
-#ifdef MDP4_ERROR
 	/*
 	 * Issue software reset on DMA_P will casue DMA_P dma engine stall
 	 * on LCDC mode. However DMA_P does not stall at MDDI mode.
 	 * This need further investigation.
 	 */
 
-//lcd blackout workaround
-	if(dma_tx_timeout){
 	mdp4_sw_reset(0x17);
-		dma_tx_timeout = 0;
-	}		
-	//mdp4_sw_reset(0x17);
-#endif
 
 	if (mdp_rev > MDP_REV_41) {
 		/* mdp chip select controller */

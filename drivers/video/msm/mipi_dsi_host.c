@@ -59,10 +59,6 @@ enum {
 	STAT_DSI_MDP
 };
 
-
-//lcd black out workaround
-int dma_tx_timeout = 0;
-
 #ifdef CONFIG_FB_MSM_MDP40
 void mipi_dsi_mdp_stat_inc(int which)
 {
@@ -88,6 +84,8 @@ void mipi_dsi_mdp_stat_inc(int which)
 {
 }
 #endif
+
+#define MIPI_DSI_TX_TIMEOUT_ms	(HZ *40/1000) // 40ms
 
 void mipi_dsi_init(void)
 {
@@ -813,9 +811,6 @@ void mipi_dsi_host_init(struct mipi_panel_info *pinfo)
 	else
 		pinfo->rgb_swap = DSI_RGB_SWAP_BGR;
 
-	//lcd black out workaround
-	mipi_dsi_sw_reset();
-
 	if (pinfo->mode == DSI_VIDEO_MODE) {
 		data = 0;
 		if (pinfo->pulse_mode_hsa_he)
@@ -886,7 +881,11 @@ void mipi_dsi_host_init(struct mipi_panel_info *pinfo)
 
 	/* from frame buffer, low power mode */
 	/* DSI_COMMAND_MODE_DMA_CTRL */
-	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);
+#ifndef CONFIG_LGE_DISPLAY_MIPI_LGIT_VIDEO_HD_PT
+	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000); // lp
+#else
+	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000); // hs
+#endif
 
 	data = 0;
 	if (pinfo->te_sel)
@@ -925,6 +924,10 @@ void mipi_dsi_host_init(struct mipi_panel_info *pinfo)
 	else
 		MIPI_OUTP(MIPI_DSI_BASE + 0x118, 0x33f); /* DSI_CLK_CTRL */
 
+#ifdef CONFIG_LGE_DISPLAY_MIPI_LGIT_VIDEO_HD_PT
+	// add following line.
+	MIPI_OUTP(MIPI_DSI_BASE + 0xA8, 0x10000000);
+#endif
 	dsi_ctrl |= BIT(0);	/* enable dsi */
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0000, dsi_ctrl);
 
@@ -1386,6 +1389,8 @@ int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
 
 int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 {
+	unsigned long ret_completion;
+	int ret = 0;
 
 #ifdef DSI_HOST_DEBUG
 	int i;
@@ -1393,7 +1398,7 @@ int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 
 	bp = tp->data;
 
-	pr_debug("%s: ", __func__);
+	pr_debug("%s: (len=%d) ", __func__, tp->len );
 	for (i = 0; i < tp->len; i++)
 		pr_debug("%x ", *bp++);
 
@@ -1415,16 +1420,25 @@ int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 	MIPI_OUTP(MIPI_DSI_BASE + 0x08c, 0x01);	/* trigger */
 	wmb();
 
-	// to avoid hang dsi completion timeout - 1s timeout
-	//wait_for_completion(&dsi_dma_comp);
-	if(!wait_for_completion_timeout(&dsi_dma_comp, msecs_to_jiffies(VSYNC_PERIOD*20))) { // 320ms
-		dma_tx_timeout = 1;
-		printk(KERN_ERR "%s: wait_for_completion_timeout err .. \n", __func__);
+#if 0 // If LCD disconnected, this code cannot be pass. wait unlimited time.
+	wait_for_completion(&dsi_dma_comp);
+	ret = tp->len;
+#else // wait, and return error when Timeout.
+	ret_completion = wait_for_completion_timeout( &dsi_dma_comp, MIPI_DSI_TX_TIMEOUT_ms );
+	if( ret_completion == 0 )	{
+		pr_err("mipi_dsi_cmd_dma_tx FAILED : return = %lu (%x %x %x %x)\n", 
+			ret_completion, tp->data[0], tp->data[1], tp->data[2], tp->data[3] );
+		ret = -1; // return error code;
 	}
+	else {
+		ret = tp->len;
+	}
+#endif 
 
 	dma_unmap_single(&dsi_dev, tp->dmap, tp->len, DMA_TO_DEVICE);
 	tp->dmap = 0;
-	return tp->len;
+
+	return ret;
 }
 
 int mipi_dsi_cmd_dma_rx(struct dsi_buf *rp, int rlen)

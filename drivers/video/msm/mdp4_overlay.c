@@ -2751,15 +2751,14 @@ static u32 mdp4_overlay_blt_enable(struct mdp_overlay *req,
 		    (mfd->panel_info.type != DTV_PANEL))
 			use_blt = 1;
 	}
+
 	return use_blt;
 }
 
 int mdp4_overlay_set(struct fb_info *info, struct mdp_overlay *req)
 {
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
-//	int ret, mixer, perf_level;
 	int ret, mixer, perf_level, ptype;
-
 	struct mdp4_overlay_pipe *pipe;
 
 	if (mfd == NULL) {
@@ -3365,6 +3364,9 @@ void mdp4_iommu_detach(void)
 {
 	struct iommu_domain *domain;
 	int i;
+
+	if (!mdp_check_suspended() || mdp4_extn_disp)
+		return;
 
 	if (iommu_enabled) {
 		for (i = 0; i < ARRAY_SIZE(msm_iommu_ctx_names); i++) {
