@@ -584,7 +584,7 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 {
 
 //bill.jung@lge.com - Don't set up filter and Power save mode
-#if 1
+#if 0
 	int power_mode = PM_MAX;
 #endif
 //bill.jung@lge.com - Don't set up filter and Power save mode
@@ -604,7 +604,7 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				DHD_ERROR(("%s: force extra Suspend setting \n", __FUNCTION__));
 				
 //bill.jung@lge.com - Don't set up filter and Power save mode
-#if 1
+#if 0
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_PM, (char *)&power_mode,
 				                 sizeof(power_mode), TRUE, 0);
 
@@ -632,7 +632,7 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				DHD_TRACE(("%s: Remove extra suspend setting \n", __FUNCTION__));
 				
 //bill.jung@lge.com - Don't set up filter and Power save mode
-#if 1
+#if 0
 				power_mode = PM_FAST;
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_PM, (char *)&power_mode,
 				                 sizeof(power_mode), TRUE, 0);
