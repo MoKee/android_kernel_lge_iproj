@@ -2418,6 +2418,11 @@ static int mdp4_overlay_req2pipe(struct mdp_overlay *req, int mixer,
 	pipe->dst_y = req->dst_rect.y & 0x07ff;
 	pipe->dst_x = req->dst_rect.x & 0x07ff;
 
+	if (pipe->dst_h & 1)
+		pipe->dst_h++;
+	if (pipe->dst_w & 1)
+		pipe->dst_w++;
+
 	pipe->op_mode = 0;
 
 	if (req->flags & MDP_FLIP_LR)
