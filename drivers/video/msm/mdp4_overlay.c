@@ -2439,6 +2439,25 @@ static int mdp4_overlay_req2pipe(struct mdp_overlay *req, int mixer,
 	if (pipe->dst_w & 1)
 		pipe->dst_w--;
 
+	if (pipe->src_x & 1) {
+		pipe->src_x++;
+		if (pipe->src_w & 1)
+			pipe->src_w--;
+		else
+			pipe->src_w-=2;
+	}
+	if (pipe->src_y & 1) {
+		pipe->src_y++;
+		if (pipe->src_w & 1)
+			pipe->src_w--;
+		else
+			pipe->src_w-=2;
+	}
+	if (pipe->src_h & 1)
+		pipe->src_h--;
+	if (pipe->src_w & 1)
+		pipe->src_w--;
+
 	pipe->op_mode = 0;
 
 	if (req->flags & MDP_FLIP_LR)
@@ -2492,9 +2511,9 @@ static int mdp4_calc_pipe_mdp_clk(struct msm_fb_data_type *mfd,
 
 	pr_debug("%s: pipe sets: panel res(x,y)=(%d,%d)\n",
 		 __func__,  mfd->panel_info.xres, mfd->panel_info.yres);
-	pr_debug("%s: src(w,h)(%d,%d),src(x,y)(%d,%d)\n",
+	pr_info("%s: src(w,h)(%d,%d),src(x,y)(%d,%d)\n",
 		 __func__,  pipe->src_w, pipe->src_h, pipe->src_x, pipe->src_y);
-	pr_debug("%s: dst(w,h)(%d,%d),dst(x,y)(%d,%d)\n",
+	pr_info("%s: dst(w,h)(%d,%d),dst(x,y)(%d,%d)\n",
 		 __func__, pipe->dst_w, pipe->dst_h, pipe->dst_x, pipe->dst_y);
 
 	pclk = (mfd->panel_info.type == MIPI_VIDEO_PANEL ||
