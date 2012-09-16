@@ -2418,10 +2418,26 @@ static int mdp4_overlay_req2pipe(struct mdp_overlay *req, int mixer,
 	pipe->dst_y = req->dst_rect.y & 0x07ff;
 	pipe->dst_x = req->dst_rect.x & 0x07ff;
 
+        /* If we've incremented the position, we need to decrement
+         * the dimension accordingly */
+	if (pipe->dst_x & 1) {
+		pipe->dst_x++;
+		if (pipe->dst_w & 1)
+			pipe->dst_w--;
+		else
+			pipe->dst_w-=2;
+	}
+	if (pipe->dst_y & 1) {
+		pipe->dst_y++;
+		if (pipe->dst_w & 1)
+			pipe->dst_w--;
+		else
+			pipe->dst_w-=2;
+	}
 	if (pipe->dst_h & 1)
-		pipe->dst_h++;
+		pipe->dst_h--;
 	if (pipe->dst_w & 1)
-		pipe->dst_w++;
+		pipe->dst_w--;
 
 	pipe->op_mode = 0;
 
