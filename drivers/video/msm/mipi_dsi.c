@@ -129,8 +129,6 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	else
 		up(&mfd->dma->mutex);
 
-	pr_debug("%s-:\n", __func__);
-
 	return ret;
 }
 
@@ -319,8 +317,6 @@ static int mipi_dsi_on(struct platform_device *pdev)
 		mutex_unlock(&mfd->dma->ov_mutex);
 	else
 		up(&mfd->dma->mutex);
-
-	pr_debug("%s-:\n", __func__);
 
 	return ret;
 }
