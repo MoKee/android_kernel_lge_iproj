@@ -5265,11 +5265,20 @@ wl_notify_connect_status(struct wl_priv *wl, struct net_device *ndev,
 
 		} else if (wl_is_linkdown(wl, e)) {
 			if (wl->scan_request) {
+#ifdef CONFIG_LGE_BCM432X_PATCH
+				if (wl->escan_on) {
+					wl_cfg80211_scan_abort(wl, ndev);
+				} else {
+					del_timer_sync(&wl->scan_timeout);
+					wl_iscan_aborted(wl);
+				}
+#else
 				del_timer_sync(&wl->scan_timeout);
 				if (wl->escan_on) {
 					wl_notify_escan_complete(wl, ndev, true);
 				} else
 					wl_iscan_aborted(wl);
+#endif
 			}
 			if (wl_get_drv_status(wl, CONNECTED, ndev)) {
 				scb_val_t scbval;
@@ -5299,11 +5308,20 @@ wl_notify_connect_status(struct wl_priv *wl, struct net_device *ndev,
 				event, (int)ntoh32(e->status));
 			/* Clean up any pending scan request */
 			if (wl->scan_request) {
+#ifdef CONFIG_LGE_BCM432X_PATCH
+				if (wl->escan_on) {
+					wl_cfg80211_scan_abort(wl, ndev);
+				} else {
+					del_timer_sync(&wl->scan_timeout);
+					wl_iscan_aborted(wl);
+				}
+#else
 				del_timer_sync(&wl->scan_timeout);
 				if (wl->escan_on) {
 					wl_notify_escan_complete(wl, ndev, true);
 				} else
 					wl_iscan_aborted(wl);
+#endif
 			}
 			if (wl_get_drv_status(wl, CONNECTING, ndev))
 				wl_bss_connect_done(wl, ndev, e, data, false);
@@ -6196,11 +6214,27 @@ wl_cfg80211_netdev_notifier_call(struct notifier_block * nb,
 	struct net_device *dev = ndev;
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
 	struct wl_priv *wl = wlcfg_drv_priv;
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	int refcnt = 0;
+#endif
 
 	WL_DBG(("Enter \n"));
 	if (!wdev || !wl || dev == wl_to_prmry_ndev(wl))
 		return NOTIFY_DONE;
 	switch (state) {
+#ifdef CONFIG_LGE_BCM432X_PATCH
+		case NETDEV_DOWN:
+			while((work_pending(&wdev->cleanup_work))&& (refcnt < 100))
+			{                               
+				if ((refcnt % 5) == 0)
+					WL_ERR(("%s : [NETDEV_DOWN] work_pending (%d th)\n", __FUNCTION__, refcnt));
+				set_current_state(TASK_INTERRUPTIBLE);
+				schedule_timeout(100);
+				set_current_state(TASK_RUNNING);
+				refcnt++;
+			}
+			break;
+#endif
 		case NETDEV_UNREGISTER:
 			/* after calling list_del_rcu(&wdev->list) */
 			wl_dealloc_netinfo(wl, ndev);
@@ -6408,6 +6442,17 @@ static s32 wl_escan_handler(struct wl_priv *wl,
 			mutex_unlock(&wl->usr_sync);
 		}
 	}
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	else if (status == WLC_E_STATUS_NEWSCAN)
+	{
+		escan_result = (wl_escan_result_t *)data;
+		if (escan_result)
+		{
+			WL_ERR(("P:WLC_E_STATUS_NEWSCAN!!!!!!:scan_request[%p]", wl->scan_request));
+			WL_ERR(("P:sync_id[%d]:bss_count[%d]", escan_result->sync_id, escan_result->bss_count));
+		}
+	}
+#endif
 	else {
 		WL_ERR(("unexpected Escan Event %d : abort\n", status));
 		wl->escan_info.escan_state = WL_ESCAN_STATE_IDLE;
