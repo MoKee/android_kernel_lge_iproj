@@ -88,7 +88,7 @@ void mipi_dsi_mdp_stat_inc(int which)
 }
 #endif
 
-#define MIPI_DSI_TX_TIMEOUT_ms	(HZ *40/1000) // 40ms
+#define MIPI_DSI_TX_TIMEOUT_ms	msecs_to_jiffies(VSYNC_PERIOD*20) // 320 msec
 
 void mipi_dsi_init(void)
 {
