@@ -32,7 +32,11 @@ struct mem_prealloc_data{
 #ifdef USE_STATIC_SKB
 struct mem_prealloc_skb{
 	struct sk_buff *skb_4k[MAX_STATIC_PKT_NUM];
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	struct sk_buff *skb_12k[MAX_STATIC_PKT_NUM];
+#else
 	struct sk_buff *skb_8k[MAX_STATIC_PKT_NUM];
+#endif
 };
 #endif
 struct mem_prealloc_data 	wifi_alloc_data[MAX_WIFI_SECTION];
@@ -116,9 +120,15 @@ static int __init brcm_static_buf_init(void)
 		}
 	}
 	for(i=0 ; i < MAX_STATIC_PKT_NUM; i++){
+#ifdef CONFIG_LGE_BCM432X_PATCH
+		if(!(wifi_alloc_skb.skb_12k[i] = dev_alloc_skb(PAGE_SIZE*3))){
+			printk("%s: skb_12k [%d] allocation fail!!!\n",__func__, i);
+		}
+#else
 		if(!(wifi_alloc_skb.skb_8k[i] = dev_alloc_skb(PAGE_SIZE*2))){
 			printk("%s: skb_8k [%d] allocation fail!!!\n",__func__, i);
 		}
+#endif
 	}
 #endif
 	return 0;
@@ -137,7 +147,11 @@ static void __exit brcm_static_buf_exit(void)
 	for(i=0 ; i < MAX_STATIC_PKT_NUM; i++)
 		dev_kfree_skb(wifi_alloc_skb.skb_4k[i]);
 	for(i=0 ; i < MAX_STATIC_PKT_NUM; i++)
+#ifdef CONFIG_LGE_BCM432X_PATCH
+		dev_kfree_skb(wifi_alloc_skb.skb_12k[i]);
+#else
 		dev_kfree_skb(wifi_alloc_skb.skb_8k[i]);
+#endif
 #endif	
 	return;
 }
