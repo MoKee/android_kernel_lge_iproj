@@ -2430,10 +2430,20 @@ static int mdp4_overlay_req2pipe(struct mdp_overlay *req, int mixer,
 	pipe->dst_y = req->dst_rect.y & 0x07ff;
 	pipe->dst_x = req->dst_rect.x & 0x07ff;
 
-	if (pipe->dst_w == pipe->src_w-2 &&
-	    pipe->dst_h == pipe->src_h-2) {
-		pipe->dst_w+=2;
-		pipe->dst_h+=2;
+	if (pipe->dst_w == pipe->src_w-2)
+		pipe->dst_w=pipe->src_w;
+	if (pipe->dst_h == pipe->src_h-2)
+		pipe->dst_h=pipe->src_h;
+
+	if (pipe->dst_w + pipe->dst_x > mfd->panel_info.xres) {
+		pipe->dst_x = mfd->panel_info.xres-pipe->dst_w;
+		pr_warn("%s: dst_x was out of boundaries!\n",
+					 __func__);
+	}
+	if (pipe->dst_h + pipe->dst_y > mfd->panel_info.yres) {
+		pipe->dst_y = mfd->panel_info.yres-pipe->dst_h;
+		pr_warn("%s: dst_y was out of boundaries!\n",
+					 __func__);
 	}
 
 	pipe->op_mode = 0;
