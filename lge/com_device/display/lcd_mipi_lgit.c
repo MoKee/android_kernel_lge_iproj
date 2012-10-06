@@ -325,8 +325,6 @@ static int mipi_lgit_lcd_on(struct platform_device *pdev)
 
 	printk(KERN_INFO "entering %s .. \n", __func__);
 
-	mipi_dsi_mdp_busy_wait(mfd);
-
 	mipi_lgit_lcd_reset();
 
 	if(lge_bd_rev < LGE_REV_C)
@@ -355,7 +353,6 @@ static int mipi_lgit_lcd_off(struct platform_device *pdev)
 
 	printk(KERN_INFO "entering %s .. \n", __func__);
 
-	mipi_dsi_mdp_busy_wait(mfd);
 	mipi_dsi_cmds_tx(&lgit_tx_buf, lgit_display_off_deep_standby_set, ARRAY_SIZE(lgit_display_off_deep_standby_set));
 	
 	gpio_tlmm_config(GPIO_CFG(LCD_RESET_N, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),GPIO_CFG_ENABLE);
