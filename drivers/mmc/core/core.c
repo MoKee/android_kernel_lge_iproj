@@ -1537,7 +1537,7 @@ int mmc_erase(struct mmc_card *card, unsigned int from, unsigned int nr,
 {
 	unsigned int rem, to = from + nr;
 
-#ifndef CONFIG_MACH_LGE_I_BOARD_SKT
+#if 0
 	if (!(card->host->caps & MMC_CAP_ERASE) ||
 	    !(card->csd.cmdclass & CCC_ERASE))
 		return -EOPNOTSUPP;
