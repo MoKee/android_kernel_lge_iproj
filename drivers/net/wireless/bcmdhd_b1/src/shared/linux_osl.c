@@ -635,10 +635,17 @@ osl_pktget_static(osl_t *osh, uint len)
 	int i = 0;
 	struct sk_buff *skb;
 
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	if (len > (PAGE_SIZE*3)) {
+		printk("%s: attempt to allocate huge packet (0x%x)\n", __FUNCTION__, len);
+		return osl_pktget(osh, len);
+	}
+#else
 	if (len > (PAGE_SIZE*2)) {
 		printk("%s: attempt to allocate huge packet (0x%x)\n", __FUNCTION__, len);
 		return osl_pktget(osh, len);
 	}
+#endif
 
 	down(&bcm_static_skb->osl_pkt_sem);
 

@@ -109,7 +109,7 @@ static struct device *cfg80211_parent_dev = NULL;
 static int vsdb_supported = 0;
 struct wl_priv *wlcfg_drv_priv = NULL;
 
-u32 wl_dbg_level = WL_DBG_ERR | WL_DBG_DBG;
+u32 wl_dbg_level = WL_DBG_ERR;
 
 #if defined(CONFIG_LGE_BCM432X_PATCH) && defined(P2P_PATCH)
 extern uint dhd_init_ap_val;
@@ -936,7 +936,8 @@ static chanspec_t wl_cfg80211_get_shared_freq(struct wiphy *wiphy)
 #if defined(CONFIG_LGE_BCM432X_PATCH) && defined(P2P_PATCH)
 			|| (ETHER_ISNULLADDR(bssid.octet))
 #endif
-		){
+		)
+	       	{
 			/* STA interface is not associated. So start the new interface on a temp
 			 * channel . Later proper channel will be applied by the above framework
 			 * via set_channel (cfg80211 API).
@@ -1210,9 +1211,9 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, struct net_device *dev)
 				(wl_get_p2p_status(wl, IF_DELETING) == false),
 				msecs_to_jiffies(MAX_WAIT_TIME));
 			if (timeout > 0 && !wl_get_p2p_status(wl, IF_DELETING)) {
-				WL_DBG(("IFDEL operation done\n"));
+				WL_DBG(("IFDEL operation done:timeout[%d]\n", timeout));
 			} else {
-				WL_ERR(("IFDEL didn't complete properly\n"));
+				WL_ERR(("IFDEL didn't complete properly[%d]\n", timeout));
 			}
 			ret = dhd_del_monitor(dev);
 		}
@@ -1335,8 +1336,26 @@ wl_cfg80211_notify_ifadd(struct net_device *ndev, s32 idx, s32 bssidx,
 	return ret;
 }
 
+#ifdef CONFIG_LGE_BCM432X_PATCH
+s32
+wl_cfg80211_notify_ifdel(void)
+{
+	struct wl_priv *wl = wlcfg_drv_priv;
+	
+	WL_DBG(("Enter \n"));
+	wl_clr_p2p_status(wl, IF_DELETING);
+
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_LGE_BCM432X_PATCH
+s32
+wl_cfg80211_ifdel_ops(struct net_device *ndev)
+#else
 s32
 wl_cfg80211_notify_ifdel(struct net_device *ndev)
+#endif
 {
 	struct wl_priv *wl = wlcfg_drv_priv;
 	bool rollback_lock = false;
@@ -1371,7 +1390,9 @@ wl_cfg80211_notify_ifdel(struct net_device *ndev)
 		wl->p2p->vif_created = false;
 		wl_cfgp2p_clear_management_ie(wl,
 			index);
+#ifndef CONFIG_LGE_BCM432X_PATCH
 		wl_clr_p2p_status(wl, IF_DELETING);
+#endif
 		WL_DBG(("index : %d\n", index));
 
 	}
@@ -2598,8 +2619,6 @@ wl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 			WL_DBG(("ASSOC2 p2p index : %d sme->ie_len %d\n",
 				wl_cfgp2p_find_idx(wl, dev), sme->ie_len));
 			wl_cfgp2p_set_management_ie(wl, dev, wl_cfgp2p_find_idx(wl, dev),
-				VNDR_IE_PRBREQ_FLAG, sme->ie, sme->ie_len);
-			wl_cfgp2p_set_management_ie(wl, dev, wl_cfgp2p_find_idx(wl, dev),
 				VNDR_IE_ASSOCREQ_FLAG, sme->ie, sme->ie_len);
 		}
 
@@ -3280,10 +3299,10 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 #endif
 	} else if (wl_get_mode_by_netdev(wl, dev) == WL_MODE_BSS) {
 		u8 *curmacp = wl_read_prof(wl, dev, WL_PROF_BSSID);
-		err = -ENODEV;
 		if (!wl_get_drv_status(wl, CONNECTED, dev) ||
-			(dhd_is_associated(dhd, NULL, &err) == FALSE)) {
-			WL_ERR(("NOT assoc: %d\n", err));
+			(dhd_is_associated(dhd, NULL) == FALSE)) {
+			WL_ERR(("NOT assoc\n"));
+			err = -ENODEV;
 			goto get_station_err;
 		}
 		if (memcmp(mac, curmacp, ETHER_ADDR_LEN)) {
@@ -3316,9 +3335,9 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 		WL_DBG(("RSSI %d dBm\n", rssi));
 
 get_station_err:
-		if (err && (err != -ETIMEDOUT) && (err != -EIO)) {
+		if (err) {
 			/* Disconnect due to zero BSSID or error to get RSSI */
-			WL_ERR(("force cfg80211_disconnected %d\n", err));
+			WL_ERR(("force cfg80211_disconnected\n"));
 			wl_clr_drv_status(wl, CONNECTED, dev);
 			cfg80211_disconnected(dev, 0, NULL, 0, GFP_KERNEL);
 			wl_link_down(wl);
@@ -3332,6 +3351,8 @@ static s32
 wl_cfg80211_set_power_mgmt(struct wiphy *wiphy, struct net_device *dev,
 	bool enabled, s32 timeout)
 {
+    //bill.jung@lge.com - For config file setup
+    #if 0
 	s32 pm;
 	s32 err = 0;
 	struct wl_priv *wl = wiphy_priv(wiphy);
@@ -3359,6 +3380,10 @@ wl_cfg80211_set_power_mgmt(struct wiphy *wiphy, struct net_device *dev,
 		return err;
 	}
 	return err;
+	#endif
+
+	return 0;
+	//bill.jung@lge.com - For config file setup
 }
 
 static __used u32 wl_find_msb(u16 bit16)
@@ -4157,11 +4182,11 @@ wl_cfg80211_change_bss(struct wiphy *wiphy,
 		if (gmode > -1)
 		{
 			err = wldev_ioctl(dev, WLC_SET_GMODE, &gmode, sizeof(s32), true);
-	if(unlikely(err))
+			if (unlikely(err))
 			{
 				WL_ERR(("WLC_SET_GMODE command failed:mode[%d]:err[%d]\n", gmode, err));
 			}
-}
+		}
 
 		val = 0;
 		err = wldev_ioctl(dev, WLC_UP, &val, sizeof(s32), true);
@@ -4172,8 +4197,7 @@ wl_cfg80211_change_bss(struct wiphy *wiphy,
 	}
 #endif
 
-return err;
-
+	return err;
 }
 
 static s32
@@ -4677,6 +4701,26 @@ wl_cfg80211_add_set_beacon(struct wiphy *wiphy, struct net_device *dev,
 					return err;
 				}
 			}
+#if defined(CONFIG_LGE_BCM432X_PATCH)
+			WL_ERR(("wl_cfg80211_add_set_beacon closednet %d\n", info->hidden_ssid));
+			if (info->hidden_ssid == NL80211_HIDDEN_SSID_NOT_IN_USE)
+			{
+				err = wldev_iovar_setint(dev, "closednet", 0);
+				if (unlikely(err))
+		  		{
+					WL_ERR(("closednet command fail:val[0]:err[%d]\n", err));
+				}
+			}
+			else
+			{
+				err = wldev_iovar_setint(dev, "closednet", 1);
+				if (unlikely(err))
+			  	{
+					WL_ERR(("closednet command fail:val[1]:err[%d]\n", err));
+				}
+			}
+#endif
+
 			err = wldev_ioctl(dev, WLC_UP, &ap, sizeof(s32), true);
 			if (unlikely(err)) {
 				WL_ERR(("WLC_UP error (%d)\n", err));
@@ -4975,15 +5019,15 @@ static s32 wl_inform_single_bss(struct wl_priv *wl, struct wl_bss_info *bi)
 		band = wiphy->bands[IEEE80211_BAND_2GHZ];
 	else
 		band = wiphy->bands[IEEE80211_BAND_5GHZ];
-
+#ifdef CONFIG_LGE_BCM432X_PATCH
 // Bluetooth.kang    BRCM Patch  20120403  add Exception handling code for invalid Band Selection
 	if(band == NULL) {
 		WL_ERR(("invalid band is selected, band is NULL\n"));
 		kfree(notif_bss_info);
-		return EINVAL;
+		return -EINVAL;
 	}
 // Bluetooth.kang    BRCM Patch  20120403  add Exception handling code for invalid Band Selection
-
+#endif
 	notif_bss_info->rssi = dtoh16(bi->RSSI);
 	memcpy(mgmt->bssid, &bi->BSSID, ETHER_ADDR_LEN);
 	mgmt_type = wl->active_scan ?
@@ -5131,7 +5175,13 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 	u8 bsscfgidx = e->bsscfgidx;
 	s32 freq;
 	s32 channel;
+
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	u8 *body=NULL;
+#else
 	u8 body[200];
+#endif
+
 	u16 fc = 0;
 	struct ieee80211_supported_band *band;
 	struct ether_addr da;
@@ -5144,11 +5194,29 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)) && !CFG80211_STA_EVENT_AVAILABLE
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	body = kzalloc(len, GFP_KERNEL);
+	WL_DBG(("Enter \n"));
+
+	if (body == NULL) {
+		WL_ERR(("wl_notify_connect_status: Failed to allocate body\n"));
+		return WL_INVALID;
+	}
+#else
 	memset(body, 0, sizeof(body));
+#endif
 	memset(&bssid, 0, ETHER_ADDR_LEN);
 	WL_DBG(("Enter \n"));
+
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	if (wl_get_mode_by_netdev(wl, ndev) == WL_INVALID) {
+		kfree(body);
+		return WL_INVALID;
+	}
+#else
 	if (wl_get_mode_by_netdev(wl, ndev) == WL_INVALID)
 		return WL_INVALID;
+#endif
 
 	memcpy(body, data, len);
 	wldev_iovar_getbuf_bsscfg(ndev, "cur_etheraddr",
@@ -5175,8 +5243,16 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 			fc = 0;
 			goto exit;
 	}
+
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	if ((err = wldev_ioctl(ndev, WLC_GET_CHANNEL, &ci, sizeof(ci), false))) {
+		kfree (body);
+		return err;
+	}
+#else
 	if ((err = wldev_ioctl(ndev, WLC_GET_CHANNEL, &ci, sizeof(ci), false)))
 		return err;
+#endif
 
 	channel = dtoh32(ci.hw_channel);
 	if (channel <= CH_MAX_2G_CHANNEL)
@@ -5208,6 +5284,11 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 exit:
 	if (isfree)
 		kfree(mgmt_frame);
+
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	if (body)
+		kfree(body);
+#endif
 	return err;
 #else /* LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0) && !CFG80211_STA_EVENT_AVAILABLE */
 	sinfo.filled = 0;

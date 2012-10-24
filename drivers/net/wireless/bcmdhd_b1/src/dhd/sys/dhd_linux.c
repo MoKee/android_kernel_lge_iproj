@@ -149,9 +149,6 @@ DECLARE_WAIT_QUEUE_HEAD(dhd_dpc_wait);
 #if defined(OOB_INTR_ONLY)
 extern void dhd_enable_oob_intr(struct dhd_bus *bus, bool enable);
 #endif /* defined(OOB_INTR_ONLY) */
-
-static void dhd_hang_process(struct work_struct *work);
-
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0))
 MODULE_LICENSE("GPL v2");
 #endif /* LinuxVer */
@@ -275,7 +272,6 @@ typedef struct dhd_info {
 	bool dhd_tasklet_create;
 #endif /* DHDTHREAD */
 	tsk_ctl_t	thr_sysioc_ctl;
-	struct work_struct work_hang;
 
 	/* Wakelocks */
 #if defined(CONFIG_HAS_WAKELOCK) && (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
@@ -1087,11 +1083,23 @@ dhd_op_if(dhd_if_t *ifp)
 			DHD_TRACE(("\n%s: got 'DHD_IF_DEL' state\n", __FUNCTION__));
 #ifdef WL_CFG80211
 			if (dhd->dhd_state & DHD_ATTACH_STATE_CFG80211) {
+#ifdef CONFIG_LGE_BCM432X_PATCH
+				wl_cfg80211_ifdel_ops(ifp->net);
+#else
 				wl_cfg80211_notify_ifdel(ifp->net);
+#endif
 			}
 #endif
 			netif_stop_queue(ifp->net);
 			unregister_netdev(ifp->net);
+
+#ifdef CONFIG_LGE_BCM432X_PATCH
+#ifdef WL_CFG80211
+			if (dhd->dhd_state & DHD_ATTACH_STATE_CFG80211) {
+				wl_cfg80211_notify_ifdel();
+			}
+#endif
+#endif	
 			ret = DHD_DEL_IF;	/* Make sure the free_netdev() is called */
 		}
 		break;
@@ -1155,8 +1163,11 @@ _dhd_sysioc_thread(void *data)
 				in_ap = (ap_net_dev != NULL);
 				dhd_os_spin_unlock(&dhd->pub, flags);
 #endif /* SOFTAP */
+
 				if (dhd->iflist[i] && dhd->iflist[i]->state)
+				{
 					dhd_op_if(dhd->iflist[i]);
+				}
 
 				if (dhd->iflist[i] == NULL) {
 					DHD_TRACE(("\n\n %s: interface %d just been removed,"
@@ -2676,9 +2687,9 @@ dhd_osl_detach(osl_t *osh)
 		DHD_ERROR(("%s: MEMORY LEAK %d bytes\n", __FUNCTION__, MALLOCED(osh)));
 	}
 	osl_detach(osh);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
-	DHD_ERROR(("%s: Release dhd_registration_sem\n", __FUNCTION__));
+#if 1 && (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
 	up(&dhd_registration_sem);
+	up(&dhd_chipup_sem);
 #endif
 }
 
@@ -2946,8 +2957,6 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 	}
 	dhd_state |= DHD_ATTACH_STATE_THREADS_CREATED;
 
-	INIT_WORK(&dhd->work_hang, dhd_hang_process);
-
 	/*
 	 * Save the dhd_info into the priv
 	 */
@@ -3171,7 +3180,23 @@ static int dhd_preinit_proc(dhd_pub_t *dhd, int ifidx, char *name, char *value)
 
 		return dhd_wl_ioctl_cmd(dhd, WLC_SET_PM,
 				&var_int, sizeof(var_int), TRUE, 0);
-	} else if(!strcmp(name,"cur_etheraddr")) {
+	}
+#ifdef WLBTAMP
+	else if(!strcmp(name, "btamp_chan")) {
+		int btamp_chan;
+		int iov_len=0;
+		char iovbuf[128];
+		int ret;
+		
+		btamp_chan = (int)simple_strtol(value, NULL, 0);
+		iov_len = bcm_mkiovar("btamp_chan", (char *)&btamp_chan, 4, iovbuf, sizeof(iovbuf));
+		if ((ret  = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, iov_len, TRUE, 0) < 0))
+			DHD_ERROR(("%s btamp_chan=%d set failed code %d\n", __FUNCTION__,btamp_chan, ret));	
+		else
+			DHD_ERROR(("%s btamp_chan %d set success\n", __FUNCTION__,btamp_chan));
+	}
+#endif
+	else if(!strcmp(name,"cur_etheraddr")) {
 		struct ether_addr ea;
 		char buf[32];
 		uint iovlen;
@@ -3495,7 +3520,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	char iovbuf[WL_EVENTING_MASK_LEN + 12];	/*  Room for "event_msgs" + '\0' + bitvec  */
 
 	uint up = 0;
-	uint power_mode = PM_FAST;
+	//bill.jung@lge.com - For config file setup
+	//uint power_mode = PM_FAST;
+	//bill.jung@lge.com - For config file setup
 	uint32 dongle_align = DHD_SDALIGN;
 	uint32 glom = 0;
 	uint bcn_timeout = 4;
@@ -3695,12 +3722,15 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 			dhd->mac.octet[3], dhd->mac.octet[4], dhd->mac.octet[5]));
 
 	/* Set Country code  */
+	//bill.jung@lge.com - For config file setup
+	/*
 	if (dhd->dhd_cspec.ccode[0] != 0) {
 		bcm_mkiovar("country", (char *)&dhd->dhd_cspec,
 			sizeof(wl_country_t), iovbuf, sizeof(iovbuf));
 		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0)
 			DHD_ERROR(("%s: country code setting failed\n", __FUNCTION__));
 	}
+	*/
 
 	/* Set Listen Interval */
 	bcm_mkiovar("assoc_listen", (char *)&listen_interval, 4, iovbuf, sizeof(iovbuf));
@@ -3708,7 +3738,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		DHD_ERROR(("%s assoc_listen failed %d\n", __FUNCTION__, ret));
 
 	/* Set PowerSave mode */
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_PM, (char *)&power_mode, sizeof(power_mode), TRUE, 0);
+	//bill.jung@lge.com - For config file setup
+	//dhd_wl_ioctl_cmd(dhd, WLC_SET_PM, (char *)&power_mode, sizeof(power_mode), TRUE, 0);
+	//bill.jung@lge.com - For config file setup
 
 	/* Match Host and Dongle rx alignment */
 	bcm_mkiovar("bus:txglomalign", (char *)&dongle_align, 4, iovbuf, sizeof(iovbuf));
@@ -3832,13 +3864,12 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 
 #ifdef PKT_FILTER_SUPPORT
 	/* Setup defintions for pktfilter , enable in suspend */
-	dhd->pktfilter_count = 5;
+	dhd->pktfilter_count = 4;
 	/* Setup filter to allow only unicast */
 	dhd->pktfilter[0] = "100 0 0 0 0x01 0x00";
 	dhd->pktfilter[1] = NULL;
 	dhd->pktfilter[2] = NULL;
 	dhd->pktfilter[3] = NULL;
-	dhd->pktfilter[4] = "104 0 0 0 0xFFFFFFFFFFFF 0x01005E0000FB";
 #if defined(SOFTAP)
 	if (ap_fw_loaded) {
 		int i;
@@ -4238,7 +4269,6 @@ void dhd_detach(dhd_pub_t *dhdp)
 	}
 #endif /* defined(CONFIG_HAS_EARLYSUSPEND) */
 
-	cancel_work_sync(&dhd->work_hang);
 
 #if defined(CONFIG_WIRELESS_EXT)
 	if (dhd->dhd_state & DHD_ATTACH_STATE_WL_ATTACH) {
@@ -5030,8 +5060,7 @@ int net_os_rxfilter_add_remove(struct net_device *dev, int add_remove, int num)
 	char *filterp = NULL;
 	int ret = 0;
 
-	if (!dhd || (num == DHD_UNICAST_FILTER_NUM) ||
-	    (num == DHD_MDNS_FILTER_NUM))
+	if (!dhd || (num == DHD_UNICAST_FILTER_NUM))
 		return ret;
 	if (num >= dhd->pub.pktfilter_count)
 		return -EINVAL;
@@ -5074,12 +5103,21 @@ int net_os_set_packet_filter(struct net_device *dev, int val)
 }
 
 
+#ifdef CONFIG_LGE_BCM432X_PATCH
+int
+dhd_dev_init_ioctl(struct net_device *dev)
+#else
 void
 dhd_dev_init_ioctl(struct net_device *dev)
+#endif
 {
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
 
+#ifdef CONFIG_LGE_BCM432X_PATCH
+	return dhd_preinit_ioctls(&dhd->pub);
+#else
 	dhd_preinit_ioctls(&dhd->pub);
+#endif
 }
 
 #ifdef PNO_SUPPORT
@@ -5124,27 +5162,6 @@ dhd_dev_get_pno_status(struct net_device *dev)
 
 #endif /* PNO_SUPPORT */
 
-static void dhd_hang_process(struct work_struct *work)
-{
-	dhd_info_t *dhd;
-	struct net_device *dev;
-
-	dhd = (dhd_info_t *)container_of(work, dhd_info_t, work_hang);
-	dev = dhd->iflist[0]->net;
-
-	if (dev) {
-#if defined(CONFIG_WIRELESS_EXT)
-		wl_iw_send_priv_event(dev, "HANG");
-#endif
-#if defined(WL_CFG80211)
-		wl_cfg80211_hang(dev, WLAN_REASON_UNSPECIFIED);
-		dev_close(dev);
-		dev_open(dev);
-#endif
-	}
-}
-
-
 int net_os_send_hang_message(struct net_device *dev)
 {
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
@@ -5153,7 +5170,16 @@ int net_os_send_hang_message(struct net_device *dev)
 	if (dhd) {
 		if (!dhd->pub.hang_was_sent) {
 			dhd->pub.hang_was_sent = 1;
-			schedule_work(&dhd->work_hang);
+#if defined(CONFIG_WIRELESS_EXT)
+			ret = wl_iw_send_priv_event(dev, "HANG");
+#endif
+#if defined(WL_CFG80211)
+			ret = wl_cfg80211_hang(dev, WLAN_REASON_UNSPECIFIED);
+#ifndef CONFIG_LGE_BCM432X_PATCH
+			dev_close(dev);
+			dev_open(dev);
+#endif
+#endif
 		}
 	}
 	return ret;

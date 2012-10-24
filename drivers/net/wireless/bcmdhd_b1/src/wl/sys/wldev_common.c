@@ -372,9 +372,16 @@ int wldev_set_country(
 		}
 		else
 		{
+#if defined (CONFIG_MACH_LGE_I_BOARD_ATNT) || defined(CONFIG_PRODUCT_I_BELL) || defined(CONFIG_PRODUCT_J_TLS)
+			memcpy(cspec.country_abbrev, country_code, WLC_CNTRY_BUF_SZ);
+			memcpy(cspec.ccode, country_code, WLC_CNTRY_BUF_SZ);
+			get_customized_country_code((char *)&cspec.country_abbrev, &cspec);
+#else
 			cspec.rev = 0;
 			memcpy(cspec.country_abbrev, country_code, WLC_CNTRY_BUF_SZ);
 			memcpy(cspec.ccode, country_code, WLC_CNTRY_BUF_SZ);
+#endif
+
 		}
 	}
 	WLDEV_ERROR(("%s: set country for %s as %s rev %d\n",	__FUNCTION__, country_code, cspec.ccode, cspec.rev));

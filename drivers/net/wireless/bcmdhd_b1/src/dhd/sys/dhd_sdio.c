@@ -1864,7 +1864,7 @@ dhd_bus_rxctl(struct dhd_bus *bus, uchar *msg, uint msglen)
 {
 	int timeleft;
 	uint rxlen = 0;
-	bool pending = FALSE;
+	bool pending;
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -3604,6 +3604,11 @@ dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	dhdsdio_clkctl(bus, CLK_AVAIL, FALSE);
 	if (bus->clkstate != CLK_AVAIL) {
 		DHD_ERROR(("%s: clock state is wrong. state = %d\n", __FUNCTION__, bus->clkstate));
+#ifdef CONFIG_LGE_BCM432X_PATCH
+/* LGE_PATCH_S */
+		ret = BCME_SDIO_ERROR;
+/* LGE_PATCH_E */
+#endif
 		goto exit;
 	}
 

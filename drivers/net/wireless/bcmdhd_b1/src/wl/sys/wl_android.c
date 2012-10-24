@@ -72,8 +72,8 @@
 #define CMD_SETBAND		"SETBAND"
 #define CMD_GETBAND		"GETBAND"
 #define CMD_COUNTRY		"COUNTRY"
-#define CMD_P2P_SET_NOA		"P2P_SET_NOA"
 #define CMD_P2P_GET_NOA		"P2P_GET_NOA"
+#define CMD_P2P_SET_NOA		"P2P_SET_NOA"
 #define CMD_P2P_SET_PS		"P2P_SET_PS"
 #define CMD_SET_AP_WPS_P2P_IE 		"SET_AP_WPS_P2P_IE"
 
@@ -112,7 +112,11 @@ typedef struct android_wifi_priv_cmd {
  */
 void dhd_customer_gpio_wlan_ctrl(int onoff);
 uint dhd_dev_reset(struct net_device *dev, uint8 flag);
+#ifdef CONFIG_LGE_BCM432X_PATCH
+int dhd_dev_init_ioctl(struct net_device *dev);
+#else
 void dhd_dev_init_ioctl(struct net_device *dev);
+#endif
 #ifdef WL_CFG80211
 int wl_cfg80211_get_p2p_dev_addr(struct net_device *net, struct ether_addr *p2pdev_addr);
 int wl_cfg80211_set_btcoex_dhcp(struct net_device *dev, char *command);
@@ -377,8 +381,29 @@ int wl_android_wifi_on(struct net_device *dev)
 			goto exit;
 		}
 		ret = dhd_dev_reset(dev, FALSE);
+#ifdef CONFIG_LGE_BCM432X_PATCH
+/* LGE_PATCH_S */
+		if( ret != 0 )
+		{
+			dhd_customer_gpio_wlan_ctrl(WLAN_RESET_OFF);
+			goto exit;
+		}
+/* LGE_PATCH_E */
+#endif
+
 		sdioh_start(NULL, 1);
-		dhd_dev_init_ioctl(dev);
+#ifdef CONFIG_LGE_BCM432X_PATCH
+		/* LGE_PATCH_S */ //workaround ioctl error
+		ret = dhd_dev_init_ioctl(dev);
+		if( ret != 0 )
+		 {
+				dhd_dev_reset(dev, 1);
+				sdioh_stop(NULL);
+				 dhd_customer_gpio_wlan_ctrl(WLAN_RESET_OFF);
+				 goto exit;
+		 }
+		/* LGE_PATCH_E */ //workaround ioctl error
+#endif
 		g_wifi_on = TRUE;
 	}
 
@@ -510,12 +535,15 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 		/* TBD: BTCOEXSCAN-STOP */
 	}
 	else if (strnicmp(command, CMD_BTCOEXMODE, strlen(CMD_BTCOEXMODE)) == 0) {
+#ifndef CONFIG_LGE_BCM432X_PATCH
 		uint mode = *(command + strlen(CMD_BTCOEXMODE) + 1) - '0';
 
 		if (mode == 1)
 			net_os_set_packet_filter(net, 0); /* DHCP starts */
 		else
 			net_os_set_packet_filter(net, 1); /* DHCP ends */
+#endif
+
 #ifdef WL_CFG80211
 		bytes_written = wl_cfg80211_set_btcoex_dhcp(net, command);
 #endif
