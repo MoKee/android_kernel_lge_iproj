@@ -306,7 +306,10 @@ static void sdio_mux_read_data(struct work_struct *work)
 	void *ptr = 0;
 	int sz, rc, len = 0;
 	struct sdio_mux_hdr *hdr;
+
+	/* ALRAN  QCT Patch 20120531  bluetooth.kang
 	static int workqueue_pinned;
+
 
 	if (!workqueue_pinned) {
 		struct cpumask cpus;
@@ -319,6 +322,7 @@ static void sdio_mux_read_data(struct work_struct *work)
 					__func__);
 		workqueue_pinned = 1;
 	}
+	*/
 
 	DBG("%s: reading\n", __func__);
 	/* should probably have a separate read lock */
@@ -369,7 +373,8 @@ static void sdio_mux_read_data(struct work_struct *work)
 		pr_err("%s: sdio read failed %d\n", __func__, rc);
 		dev_kfree_skb_any(skb_mux);
 		mutex_unlock(&sdio_mux_lock);
-		queue_work(sdio_mux_workqueue, &work_sdio_mux_read);
+		//queue_work(sdio_mux_workqueue, &work_sdio_mux_read);
+		queue_work_on(0, sdio_mux_workqueue, &work_sdio_mux_read); //ALRAN QCT_Patch 20120531 bluetooth.kang
 		return;
 	}
 	mutex_unlock(&sdio_mux_lock);
@@ -400,7 +405,8 @@ static void sdio_mux_read_data(struct work_struct *work)
 	dev_kfree_skb_any(skb_mux);
 
 	DBG("%s: read done\n", __func__);
-	queue_work(sdio_mux_workqueue, &work_sdio_mux_read);
+	//queue_work(sdio_mux_workqueue, &work_sdio_mux_read);
+	queue_work_on(0, sdio_mux_workqueue, &work_sdio_mux_read); //ALRAN QCT_Patch 20120531 bluetooth.kang
 }
 
 static int sdio_mux_write(struct sk_buff *skb)
@@ -645,7 +651,8 @@ int msm_sdio_dmux_write(uint32_t id, struct sk_buff *skb)
 	sdio_ch[id].num_tx_pkts++;
 	spin_unlock(&sdio_ch[id].lock);
 
-	queue_work(sdio_mux_workqueue, &work_sdio_mux_write);
+	//queue_work(sdio_mux_workqueue, &work_sdio_mux_write);
+	queue_work_on(0, sdio_mux_workqueue, &work_sdio_mux_write);//ALRAN QCT_Patch 20120531 bluetooth.kang
 
 write_done:
 	spin_unlock_irqrestore(&sdio_mux_write_lock, flags);
@@ -724,11 +731,13 @@ static void sdio_mux_notify(void *_dev, unsigned event)
 	/* write avail may not be enouogh for a packet, but should be fine */
 	if ((event == SDIO_EVENT_DATA_WRITE_AVAIL) &&
 	    sdio_write_avail(sdio_mux_ch))
-		queue_work(sdio_mux_workqueue, &work_sdio_mux_write);
+		queue_work_on(0, sdio_mux_workqueue, &work_sdio_mux_write); //ALRAN QCT_PATCH 20120531 bluetooth.kang
+		//queue_work(sdio_mux_workqueue, &work_sdio_mux_write);
 
 	if ((event == SDIO_EVENT_DATA_READ_AVAIL) &&
 	    sdio_read_avail(sdio_mux_ch))
-		queue_work(sdio_mux_workqueue, &work_sdio_mux_read);
+		queue_work_on(0, sdio_mux_workqueue, &work_sdio_mux_read); //ALRAN QCT_PATCH 20120531 bluetooth.kang
+		//queue_work(sdio_mux_workqueue, &work_sdio_mux_read);
 }
 
 int msm_sdio_dmux_is_ch_full(uint32_t id)
@@ -828,7 +837,11 @@ static int sdio_dmux_probe(struct platform_device *pdev)
 	DBG("%s probe called\n", __func__);
 
 	if (!sdio_mux_initialized) {
-		sdio_mux_workqueue = create_singlethread_workqueue("sdio_dmux");
+		//ALRAN
+		//sdio_mux_workqueue = create_singlethread_workqueue("sdio_dmux"); QCT_PATCH 20120531 bluetooth.kang
+		sdio_mux_workqueue = alloc_workqueue("sdio_dmux", /*WQ_UNBOUND*/WQ_MEM_RECLAIM, 1);
+		//ALRANEND
+
 		if (!sdio_mux_workqueue)
 			return -ENOMEM;
 
