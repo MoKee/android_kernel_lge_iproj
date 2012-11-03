@@ -408,6 +408,8 @@ static ssize_t vsync_show_event(struct device *dev,
 
 	spin_lock_irqsave(&vctrl->spin_lock, flags);
 	vsync_tick = ktime_to_ns(vctrl->vsync_time);
+	if (!vsync_tick)
+		vsync_tick = ktime_to_ns(ktime_get());
 	spin_unlock_irqrestore(&vctrl->spin_lock, flags);
 
 	ret = snprintf(buf, PAGE_SIZE, "VSYNC=%llu", vsync_tick);
