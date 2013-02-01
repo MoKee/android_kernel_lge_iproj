@@ -419,8 +419,10 @@ static void bluesleep_stop(void)
 static struct uart_port *bluesleep_get_uart_port(void)
 {
 	struct uart_port *uport = NULL;
-	if (bluesleep_uart_dev)
+	/*if (bluesleep_uart_dev)
 		uport =  (struct uart_port *)platform_get_drvdata(bluesleep_uart_dev);
+	else*/
+		uport = msm_hs_get_bt_uport(bs_platform_data->bluetooth_port_num);
 
 	return uport;
 }
