@@ -168,11 +168,10 @@ int mdp4_dsi_video_pipe_commit(int cndx, int wait)
 	pipe = vctrl->base_pipe;
 	mixer = pipe->mixer_num;
 
-	/*
-	 * allow stage_commit without pipes queued
-	 * (vp->update_cnt == 0) to unstage pipes after
-	 * overlay_unset
-	 */
+	if (vp->update_cnt == 0) {
+		mutex_unlock(&vctrl->update_lock);
+		return cnt;
+	}
 
 	vctrl->update_ndx++;
 	vctrl->update_ndx &= 0x01;
@@ -1152,9 +1151,9 @@ void mdp4_dsi_video_overlay(struct msm_fb_data_type *mfd)
 
 	mdp_update_pm(mfd, vsync_ctrl_db[0].vsync_time);
 	mdp4_overlay_mdp_perf_upd(mfd, 1);
-
 	cnt = mdp4_dsi_video_pipe_commit(cndx, 0);
-	if (cnt >= 0) {
+
+	if (cnt) {
 		if (pipe->ov_blt_addr)
 			mdp4_dsi_video_wait4ov(cndx);
 		else
