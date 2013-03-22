@@ -700,6 +700,13 @@ struct ion_allocation_data {
 	struct ion_handle *handle;
 };
 
+struct ion_allocation_data_old {
+	size_t len;
+	size_t align;
+	unsigned int flags;
+	struct ion_handle *handle;
+};
+
 /**
  * struct ion_fd_data - metadata passed to/from userspace for a handle/fd pair
  * @handle:	a handle
@@ -780,6 +787,8 @@ struct ion_flag_data {
  */
 #define ION_IOC_ALLOC		_IOWR(ION_IOC_MAGIC, 0, \
 				      struct ion_allocation_data)
+#define ION_IOC_ALLOC_COMPAT	_IOWR(ION_IOC_MAGIC, 0, \
+				      struct ion_allocation_data_old)
 
 /**
  * DOC: ION_IOC_FREE - free memory
