@@ -3382,10 +3382,6 @@ int tcp_nuke_addr(struct net *net, struct sockaddr *addr)
 	} else {
 		return -EAFNOSUPPORT;
 	}
-#ifdef WORKAROUND_CRASH_TCP_NUKE_ADDR
-    printk(KERN_INFO "================tcp_nuke_addr================\n");
-    printk(KERN_INFO "   family %d \n", family);
-#endif
 	for (bucket = 0; bucket < tcp_hashinfo.ehash_mask; bucket++) {
 		struct hlist_nulls_node *node;
 		struct sock *sk;
@@ -3397,7 +3393,6 @@ restart:
 			struct inet_sock *inet = inet_sk(sk);
 
 #ifdef WORKAROUND_CRASH_TCP_NUKE_ADDR
-	    printk(KERN_INFO "tcp_nuke_addr : sk :  0x%p \n", sk);
         if(IS_INVALID_ADDR(sk)|| IS_ERR_OR_NULL(sk))
             break;
 #endif        
@@ -3451,8 +3446,5 @@ restart:
 		}
 		spin_unlock_bh(lock);
 	}
-#ifdef WORKAROUND_CRASH_TCP_NUKE_ADDR
-    printk(KERN_INFO "================tcp_nuke_addr================\n");
-#endif
 	return 0;
 }
