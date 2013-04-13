@@ -1088,25 +1088,26 @@ static int msm_fb_mmap(struct fb_info *info, struct vm_area_struct * vma)
 	int ret = 0;
 	mutex_lock(&mfd->entry_mutex);
 	msm_fb_pan_idle(mfd);
-	if (off >= len) {
-		/* memory mapped io */
-		off -= len;
-		if (info->var.accel_flags) {
-			mutex_unlock(&info->lock);
-			ret = -EINVAL;
-			goto msm_fb_mmap_exit;
-		}
-		start = info->fix.mmio_start;
-		len = PAGE_ALIGN((start & ~PAGE_MASK) + info->fix.mmio_len);
+
+	if (!start) {
+		ret = -EINVAL;
+		goto msm_fb_mmap_exit;
+	}
+
+	if ((vma->vm_end <= vma->vm_start) ||
+	    (off >= len) ||
+	    ((vma->vm_end - vma->vm_start) > (len - off))) {
+		ret = -EINVAL;
+		goto msm_fb_mmap_exit;
 	}
 
 	/* Set VM flags. */
 	start &= PAGE_MASK;
-	if ((vma->vm_end - vma->vm_start + off) > len) {
+	off += start;
+	if (off < start) {
 		ret = -EINVAL;
 		goto msm_fb_mmap_exit;
 	}
-	off += start;
 	vma->vm_pgoff = off >> PAGE_SHIFT;
 	/* This is an IO map - tell maydump to skip this VMA */
 	vma->vm_flags |= VM_IO | VM_RESERVED;
