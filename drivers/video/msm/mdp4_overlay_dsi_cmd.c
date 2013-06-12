@@ -848,14 +848,8 @@ static void mdp4_overlay_update_dsi_cmd(struct msm_fb_data_type *mfd)
 			printk(KERN_INFO "%s: pipe_alloc failed\n", __func__);
 			return;
 		}
-
-		if (mdp4_overlay_borderfill_supported()) {
-			pipe->pipe_used++;
-			pipe->mixer_stage  = MDP4_MIXER_STAGE_BASE;
-		} else {
-			pipe->mixer_stage  = MDP4_MIXER_STAGE_UNUNSED;
-		}
-
+		pipe->pipe_used++;
+		pipe->mixer_stage  = MDP4_MIXER_STAGE_BASE;
 		pipe->mixer_num  = MDP4_MIXER0;
 		pipe->src_format = mfd->fb_imgType;
 		mdp4_overlay_panel_mode(pipe->mixer_num, MDP4_PANEL_DSI_CMD);
