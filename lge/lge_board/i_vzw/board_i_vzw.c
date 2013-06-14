@@ -2325,8 +2325,8 @@ static struct rpm_regulator_init_data rpm_regulator_init_data[] = {
 	RPM_LDO(PM8058_L4,  0, 1, 0, 2850000, 2850000,  LDO50HMIN), /* +2V85_TCXO */
 	RPM_LDO(PM8058_L5,  0, 1, 0, 2850000, 2850000, LDO300HMIN), /* +2V85_MSM_PAD */
 #ifdef CONFIG_USB_G_LGE_ANDROID_FACTORY
-    /* bump up maxV to 3.5v for usb1.1 full-speed */
-    RPM_LDO(PM8058_L6,  0, 1, 0, 3075000, 3500000,  LDO50HMIN), /* +3V075_USB */
+	/* bump up maxV to 3.5v for usb1.1 full-speed */
+	RPM_LDO(PM8058_L6,  0, 1, 0, 3075000, 3500000,  LDO50HMIN), /* +3V075_USB */
 #else
 	RPM_LDO(PM8058_L6,  0, 1, 0, 3050000, 3050000,  LDO50HMIN), /* +3V075_USB */
 #endif	
@@ -5406,8 +5406,8 @@ static struct msm_sdcc_pad_pull_cfg sdc3_pad_off_pull_cfg[] = {
 	{TLMM_PULL_SDC3_DATA, GPIO_CFG_PULL_DOWN}
 };
 #endif
-
 #endif
+
 #ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
 static struct msm_sdcc_pad_drv_cfg sdc4_pad_on_drv_cfg[] = {
 	{TLMM_HDRV_SDC4_CLK, GPIO_CFG_8MA},
@@ -5840,7 +5840,7 @@ static int msm_sdcc_setup_vreg(int dev_id, unsigned char enable)
 	{
 		printk("\n(SD power will be OFFed!! (ctrl_flag:%d)\n",g_sd_power_dircect_ctrl);
 		curr_vdd_reg->always_on = 0;
-		 l_changed = 1;
+		l_changed = 1;
 	}
 
 	if (curr->sts == enable)

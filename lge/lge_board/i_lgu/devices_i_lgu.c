@@ -140,16 +140,15 @@ static void charm_ap2mdm_kpdpwr_off(void)
 	}
 }
 
-//LGE_Change_S jaseseung.noh@lge.com Resetting MDM
 #ifdef CONFIG_LGE_MDM_PMIC_8028
 static void charm_force_reset(void)
 {
-       gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
-       msleep(4000);
-       gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
+	gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
+	msleep(4000);
+	gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
 }
 #endif
-//LGE_Change_E jaseseung.noh@lge.com Resetting MDM
+
 static struct resource charm_resources[] = {
 	/* MDM2AP_ERRFATAL */
 	{
@@ -168,11 +167,9 @@ static struct resource charm_resources[] = {
 static struct charm_platform_data mdm_platform_data = {
 	.charm_modem_on		= charm_ap2mdm_kpdpwr_on,
 	.charm_modem_off	= charm_ap2mdm_kpdpwr_off,
-//LGE_Change_S jaseseung.noh@lge.com Resetting MDM
 #ifdef CONFIG_LGE_MDM_PMIC_8028
-        .charm_force_reset      = charm_force_reset,
+	.charm_force_reset      = charm_force_reset,
 #endif 
-//LGE_Change_E jaseseung.noh@lge.com Resetting MDM
 };
 
 struct platform_device msm_charm_modem = {
@@ -1756,6 +1753,7 @@ struct platform_device msm_rotator_device = {
 #ifdef CONFIG_MSM_DSPS
 
 #define PPSS_REG_PHYS_BASE	0x12080000
+#define PPSS_PAUSE_REG          0x1804
 
 #define MHZ (1000*1000)
 
@@ -1818,6 +1816,7 @@ struct msm_dsps_platform_data msm_dsps_pdata = {
 	.regs = dsps_regs,
 	.regs_num = ARRAY_SIZE(dsps_regs),
 	.init = dsps_init1,
+	.ppss_pause_reg = PPSS_PAUSE_REG,
 	.signature = DSPS_SIGNATURE,
 };
 

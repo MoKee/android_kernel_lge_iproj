@@ -20,6 +20,7 @@
 #include <board_lge.h>
 #include <linux/delay.h>
 #include <linux/rfkill.h>
+#include "../../../arch/arm/mach-msm/devices.h"
 #include <mach/gpiomux.h>
 #include "gpio.h"
 
@@ -134,9 +135,13 @@ static int configure_pcm_gpios(int on)
 	return ret;
 }
 
+static int bt_status = 0;
 static int i_lgu_bluetooth_power(int on)
 {
   int ret, pin;
+
+       if (on == bt_status)
+               return 0;
 
   printk(KERN_ERR"[LG_BTUI] %s power : %d ", __func__, on);
 
@@ -196,6 +201,7 @@ static int i_lgu_bluetooth_power(int on)
             }
         }
     }
+  bt_status = on;
   return 0;
 }
 
@@ -327,6 +333,7 @@ static struct platform_device *bt_devices[] __initdata = {
 		&msm_bluesleep_device,
 };
 
+extern void bluesleep_setup_uart_port(struct platform_device *uart_dev);
 void __init lge_add_btpower_devices(void)
 {	
 	printk(KERN_INFO "%s, line: %d\n", __func__, __LINE__);	
@@ -334,4 +341,5 @@ void __init lge_add_btpower_devices(void)
 	platform_add_devices(bt_devices, ARRAY_SIZE(bt_devices));
 //	platform_device_register(&msm_bt_power_device);
 //	platform_device_register(&msm_bluesleep_device);
+	bluesleep_setup_uart_port(&msm_device_uart_dm1);
 }

@@ -104,6 +104,7 @@
 
 #include "board_lge.h"
 #include "board_i_lgu.h"
+#include <mach/iommu_domains.h>
 
 #define MSM_SHARED_RAM_PHYS 0x40000000
 
@@ -1522,8 +1523,7 @@ unsigned char hdmi_is_primary;
 #define MSM_ION_AUDIO_SIZE	MSM_PMEM_AUDIO_SIZE
 
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-//#define MSM_ION_HEAP_NUM	9
-#define MSM_ION_HEAP_NUM	8
+#define MSM_ION_HEAP_NUM	9
 #define MSM_HDMI_PRIM_ION_SF_SIZE MSM_HDMI_PRIM_PMEM_SF_SIZE
 static unsigned msm_ion_sf_size = MSM_ION_SF_SIZE;
 #else
@@ -2292,13 +2292,13 @@ static struct rpm_regulator_init_data rpm_regulator_init_data[] = {
 	/*	ID        a_on pd ss min_uV   max_uV   init_ip */
 	RPM_LDO(PM8058_L0,  0, 1, 0, 1200000, 1200000, LDO150HMIN), /* +1V2_MSM_A2 : not output */
 	RPM_LDO(PM8058_L1,  0, 1, 0, 1200000, 1200000, LDO300HMIN), /* +1V2_8MCAM_DVDD */ // jisun.shin@lge.com
-    RPM_LDO(PM8058_L2,  0, 1, 0, 0, 0, LDO300HMIN), /* NC  */
+	RPM_LDO(PM8058_L2,  0, 1, 0, 0, 0, LDO300HMIN), /* NC  */
 	RPM_LDO(PM8058_L3,  0, 1, 0, 3300000, 3300000, LDO150HMIN), /* +3V3_MHL */
 	RPM_LDO(PM8058_L4,  0, 1, 0, 2850000, 2850000,  LDO50HMIN), /* +2V85_PM_TCXO */
 	RPM_LDO(PM8058_L5,  0, 1, 0, 2850000, 2850000, LDO300HMIN), /* +2V85_MSM_PAD */
 #ifdef CONFIG_USB_G_LGE_ANDROID_FACTORY
 	/* bump up maxV to 3.5v for usb1.1 full-speed */
-    RPM_LDO(PM8058_L6,  0, 1, 0, 3075000, 3500000,  LDO50HMIN), /* +3V075_USB */
+	RPM_LDO(PM8058_L6,  0, 1, 0, 3075000, 3500000,  LDO50HMIN), /* +3V075_USB */
 #else
 	RPM_LDO(PM8058_L6,  0, 1, 0, 3050000, 3050000,  LDO50HMIN), /* +3V05_MSM_USB */
 #endif
@@ -3072,10 +3072,12 @@ static struct platform_device *surf_devices[] __initdata = {
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
 static struct ion_cp_heap_pdata cp_mm_ion_pdata = {
 	.permission_type = IPT_TYPE_MM_CARVEOUT,
-	.align = PAGE_SIZE,
+	.align = SZ_64K,
 	.request_region = request_smi_region,
 	.release_region = release_smi_region,
 	.setup_region = setup_smi_region,
+	.iommu_map_all = 1,
+	.iommu_2x_map_domain = VIDEO_DOMAIN,
 };
 
 static struct ion_cp_heap_pdata cp_mfc_ion_pdata = {
@@ -3154,7 +3156,6 @@ static struct ion_platform_data ion_pdata = {
 			.memory_type = ION_EBI_TYPE,
 			.extra_data = (void *)&co_ion_pdata,
 		},
-#if 0		
 		{
 			.id	= ION_CAMERA_HEAP_ID,
 			.type	= ION_HEAP_TYPE_CARVEOUT,
@@ -3163,7 +3164,6 @@ static struct ion_platform_data ion_pdata = {
 			.memory_type = ION_EBI_TYPE,
 			.extra_data = &co_ion_pdata,
 		},
-#endif		
 		{
 			.id	= ION_CP_WB_HEAP_ID,
 			.type	= ION_HEAP_TYPE_CP,
@@ -3244,11 +3244,28 @@ static void reserve_ion_memory(void)
 		}
 	}
 
+	/* Verify size of heap is a multiple of 64K */
+	for (i = 0; i < ion_pdata.nr; i++) {
+		struct ion_platform_heap *heap = &(ion_pdata.heaps[i]);
+
+		if (heap->extra_data && heap->type == ION_HEAP_TYPE_CP) {
+			int map_all = ((struct ion_cp_heap_pdata *)
+					heap->extra_data)->iommu_map_all;
+
+			if (map_all && (heap->size & (SZ_64K-1))) {
+				heap->size = ALIGN(heap->size, SZ_64K);
+				pr_err("Heap %s size is not a multiple of 64K. Adjusting size to %x\n",
+						heap->name, heap->size);
+
+			}
+		}
+	}
+
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += msm_ion_sf_size;
 	msm8x60_reserve_table[MEMTYPE_SMI].size += MSM_ION_MM_FW_SIZE;
 	msm8x60_reserve_table[MEMTYPE_SMI].size += MSM_ION_MM_SIZE;
 	msm8x60_reserve_table[MEMTYPE_SMI].size += MSM_ION_MFC_SIZE;
-//	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_CAMERA_SIZE;
+	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_CAMERA_SIZE;
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_WB_SIZE;
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_AUDIO_SIZE;
 #endif
@@ -5006,7 +5023,6 @@ static void register_i2c_devices(void)
 #ifdef CONFIG_LGE_SENSOR
 	i2c_register_input_sensor_info();
 #endif
-
 	/* jisun.shin@lge.com Camera Platform*/
 #ifdef CONFIG_LGE_CAMERA
 	i2c_register_camera_info();
@@ -6326,7 +6342,7 @@ static struct msm_rpm_platform_data msm_rpm_data = {
 void msm_fusion_setup_pinctrl(void)
 {
 	struct msm_xo_voter *a1;
-	//byongdoo.oh@lge.com
+	// byongdoo.oh@lge.com
 	//	if (socinfo_get_platform_subtype() == 0x3) {
 		/*
 		 * Vote for the A1 clock to be in pin control mode before
@@ -6376,7 +6392,9 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 
 	msm8x60_check_2d_hardware();
 
+#ifdef CONFIG_LGE_VIBRATOR
 	lge_add_misc_devices();
+#endif
 	/* Change SPM handling of core 1 if PMM 8160 is present. */
 	soc_platform_version = socinfo_get_platform_version();
 	if (SOCINFO_VERSION_MAJOR(soc_platform_version) == 1 &&
@@ -6594,6 +6612,7 @@ MACHINE_START(MSM8X60_FUSION, "QCT MSM8X60 FUSION SURF")
 	.map_io = msm8x60_map_io,
 	.reserve = msm8x60_reserve,
 	.init_irq = msm8x60_init_irq,
+	.handle_irq = gic_handle_irq,
 	.init_machine = msm8x60_charm_surf_init,
 	.timer = &msm_timer,
 	.init_early = msm8x60_charm_init_early,
@@ -6603,6 +6622,7 @@ MACHINE_START(MSM8X60_FUSN_FFA, "QCT MSM8X60 FUSION FFA")
 	.map_io = msm8x60_map_io,
 	.reserve = msm8x60_reserve,
 	.init_irq = msm8x60_init_irq,
+	.handle_irq = gic_handle_irq,
 	.init_machine = msm8x60_charm_ffa_init,
 	.timer = &msm_timer,
 	.init_early = msm8x60_charm_init_early,
