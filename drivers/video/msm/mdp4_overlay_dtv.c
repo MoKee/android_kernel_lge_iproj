@@ -773,12 +773,8 @@ static void mdp4_overlay_dtv_alloc_pipe(struct msm_fb_data_type *mfd,
 		return;
 	}
 
-	if (mdp4_overlay_borderfill_supported()) {
-		pipe->pipe_used++;
-		pipe->mixer_stage = MDP4_MIXER_STAGE_BASE;
-	} else	{
-		pipe->mixer_stage = MDP4_MIXER_STAGE_UNUNSED;
-	}
+	pipe->pipe_used++;
+	pipe->mixer_stage = MDP4_MIXER_STAGE_BASE;
 
 	pipe->mixer_num = MDP4_MIXER1;
 
@@ -1098,11 +1094,8 @@ void mdp4_dtv_overlay(struct msm_fb_data_type *mfd)
 	struct vsycn_ctrl *vctrl;
 	struct mdp4_overlay_pipe *pipe;
 
-	mutex_lock(&mfd->dma->ov_mutex);
-	if (!mfd->panel_power_on) {
-		mutex_unlock(&mfd->dma->ov_mutex);
+	if (!mfd->panel_power_on)
 		return;
-	}
 
 	if (!mdp4_overlay_borderfill_supported()) {
 		mutex_unlock(&mfd->dma->ov_mutex);
@@ -1117,7 +1110,6 @@ void mdp4_dtv_overlay(struct msm_fb_data_type *mfd)
 
 	if (pipe == NULL) {
 		pr_warn("%s: dtv_pipe == NULL\n", __func__);
-		mutex_unlock(&mfd->dma->ov_mutex);
 		return;
 	}
 	mdp_update_pm(mfd, vsync_ctrl_db[0].vsync_time);
@@ -1134,6 +1126,7 @@ void mdp4_dtv_overlay(struct msm_fb_data_type *mfd)
 		mdp4_dtv_pipe_queue(0, pipe);
 	}
 
+	mutex_lock(&mfd->dma->ov_mutex);
 	mdp4_overlay_mdp_perf_upd(mfd, 1);
 	mdp4_dtv_pipe_commit(cndx, 0);
 	mdp4_overlay_mdp_perf_upd(mfd, 0);
