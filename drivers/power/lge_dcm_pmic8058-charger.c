@@ -2190,6 +2190,32 @@ sanity_out:
 }
 EXPORT_SYMBOL(batt_read_adc);
 
+
+void pm8058_chg_batt_remove_and_reset(void)
+{
+  int ret;
+  int mv_reading;
+
+#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
+
+  pr_err("===========================================================");
+  if(batt_read_adc(CHANNEL_ADC_BATT_THERM, &mv_reading) < 0)
+  {
+      pr_err("%s: arch_reset board rev = %d \n",__func__, lge_bd_rev);
+      pr_err("===========================================================");
+      arch_reset(0,NULL);
+  }
+#endif
+
+  ret = pm_chg_get_rt_status(pm8058_chg.pmic_chg_irq[BATTCONNECT_IRQ]);
+  if (ret) {
+    msm_charger_notify_event(&usb_hw_chg, CHG_BATT_REMOVED);
+  } 
+  
+  ret = pm_chg_batt_temp_disable(1); //need or not?
+}
+EXPORT_SYMBOL(pm8058_chg_batt_remove_and_reset);
+
 #define BATT_THERM_OPEN_MV  2000
 int pm8058_is_battery_present(void)
 {
