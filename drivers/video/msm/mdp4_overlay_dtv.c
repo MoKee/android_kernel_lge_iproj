@@ -549,14 +549,11 @@ static int mdp4_dtv_start(struct msm_fb_data_type *mfd)
 	/* Test pattern 8 x 8 pixel */
 	/* MDP_OUTP(MDP_BASE + DTV_BASE + 0x4C, 0x80000808); */
 
-	if (mdp4_overlay_borderfill_supported()) {
-		MDP_OUTP(MDP_BASE + DTV_BASE, 1);
-		dtv_enabled = 1;
-	}
+	/* enable DTV block */
+	MDP_OUTP(MDP_BASE + DTV_BASE, 1);
 
 	return 0;
 }
-
 
 static DEVICE_ATTR(vsync_event, S_IRUGO, vsync_show_event, NULL);
 static struct attribute *vsync_fs_attrs[] = {
@@ -664,7 +661,6 @@ int mdp4_dtv_off(struct platform_device *pdev)
 	atomic_set(&vctrl->vsync_resume, 0);
 
 	complete_all(&vctrl->vsync_comp);
-	complete_all(&vctrl->dmae_comp);
 
 	pipe = vctrl->base_pipe;
 	if (pipe != NULL) {
@@ -782,10 +778,8 @@ static void mdp4_overlay_dtv_alloc_pipe(struct msm_fb_data_type *mfd,
 		pr_err("%s: pipe_alloc failed\n", __func__);
 		return;
 	}
-
 	pipe->pipe_used++;
 	pipe->mixer_stage = MDP4_MIXER_STAGE_BASE;
-
 	pipe->mixer_num = MDP4_MIXER1;
 
 	if (ptype == OVERLAY_TYPE_BF) {
@@ -885,13 +879,13 @@ int mdp4_overlay_dtv_unset(struct msm_fb_data_type *mfd,
 	struct vsycn_ctrl *vctrl;
 
 	vctrl = &vsync_ctrl_db[cndx];
-	if (vctrl->base_pipe == NULL)
+	if (vctrl->base_pipe != NULL)
 		return 0;
 
-	if ((pipe->mixer_stage == MDP4_MIXER_STAGE_BASE ||
-		pipe->mixer_stage == MDP4_MIXER_STAGE_UNUNSED) &&
+	if (pipe->mixer_stage == MDP4_MIXER_STAGE_BASE &&
 			pipe->pipe_type == OVERLAY_TYPE_RGB) {
 		mdp4_dtv_tg_off(vctrl);
+		vctrl->base_pipe = NULL;
 	}
 	return result;
 }
@@ -1106,11 +1100,6 @@ void mdp4_dtv_overlay(struct msm_fb_data_type *mfd)
 
 	mutex_lock(&mfd->dma->ov_mutex);
 	if (!mfd->panel_power_on) {
-		mutex_unlock(&mfd->dma->ov_mutex);
-		return;
-	}
-
-	if (!mdp4_overlay_borderfill_supported()) {
 		mutex_unlock(&mfd->dma->ov_mutex);
 		return;
 	}
