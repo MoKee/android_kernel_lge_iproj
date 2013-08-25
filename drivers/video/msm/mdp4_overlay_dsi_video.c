@@ -409,13 +409,16 @@ static ssize_t vsync_show_event(struct device *dev,
 	vctrl = &vsync_ctrl_db[0];
 	timestamp = vctrl->vsync_time;
 
-	ret = wait_event_interruptible(vctrl->wait_queue,
+	ret = wait_event_interruptible_timeout(vctrl->wait_queue,
 			!ktime_equal(timestamp, vctrl->vsync_time) &&
-			vctrl->vsync_irq_enabled);
+			vctrl->vsync_irq_enabled, msecs_to_jiffies(VSYNC_PERIOD * 4));
 	if (ret == -ERESTARTSYS)
 		return ret;
+	else if (ret == 0)
+		vsync_tick = ktime_to_ns(ktime_get());
+	else
+		vsync_tick = ktime_to_ns(vctrl->vsync_time);
 
-	vsync_tick = ktime_to_ns(vctrl->vsync_time);
 	ret = scnprintf(buf, PAGE_SIZE, "VSYNC=%llu", vsync_tick);
 	buf[strlen(buf) + 1] = '\0';
 	return ret;
