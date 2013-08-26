@@ -252,27 +252,32 @@ static int kcal_g = 255;
 static int kcal_b = 255;
 int mdp_preset_lut_update_lcdc(struct fb_cmap *cmap, uint32_t *internal_lut);
 
-static ssize_t kcal_store(struct device *dev, struct device_attribute *attr,
-                                                const char *buf, size_t count)
-{
-        struct fb_cmap cmap;
+static void kcal_tuning_apply() {
+	struct fb_cmap cmap;
 
-        cmap.start = 0;
-        cmap.len = 256;
-        cmap.transp = NULL;
+	cmap.start = 0;
+	cmap.len = 256;
+	cmap.transp = NULL;
 
-        if (!count)
-                return -EINVAL;
-
-
-        sscanf(buf, "%d %d %d", &kcal_r, &kcal_g, &kcal_b);
-
-        cmap.red = (uint16_t *)&(kcal_r);
-        cmap.green = (uint16_t *)&(kcal_g);
-        cmap.blue = (uint16_t *)&(kcal_b);
+	cmap.red = (uint16_t *)&(kcal_r);
+	cmap.green = (uint16_t *)&(kcal_g);
+	cmap.blue = (uint16_t *)&(kcal_b);
 
 	mdp_preset_lut_update_lcdc(&cmap, lcd_color_preset_lut);
-        return count;
+}
+
+static ssize_t kcal_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	if (!count)
+		return -EINVAL;
+
+
+	sscanf(buf, "%d %d %d", &kcal_r, &kcal_g, &kcal_b);
+
+	kcal_tuning_apply();
+
+	return count;
 }
 
 static ssize_t kcal_show(struct device *dev, struct device_attribute *attr,
@@ -2314,6 +2319,9 @@ static int mdp_on(struct platform_device *pdev)
 	mdp_histogram_ctrl_all(TRUE);
 	pr_debug("%s:-\n", __func__);
 
+#ifdef CM_LUT
+	kcal_tuning_apply();
+#endif
 	return ret;
 }
 
