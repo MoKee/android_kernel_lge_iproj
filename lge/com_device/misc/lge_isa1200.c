@@ -106,7 +106,7 @@ static int lge_isa1200_hw_init(struct lge_isa1200_context *context)
 #endif
 	struct i2c_client *client = context->client;
 
-	dev_info(context->dev.dev, "%s()\n", __func__);
+	dev_dbg(context->dev.dev, "%s()\n", __func__);
 
 #ifdef CONFIG_PRE_INITIAL_CODE
 	gpio_set_value_cansleep(context->pdata->gpio_hen, 1);
@@ -196,7 +196,7 @@ static int lge_isa1200_vibrator_get_time(struct timed_output_dev *dev)
 {
 	struct lge_isa1200_context *context = container_of(dev, struct lge_isa1200_context, dev);
 
-	dev_info(dev->dev, "%s()\n", __func__);
+	dev_dbg(dev->dev, "%s()\n", __func__);
 
 	if (hrtimer_active(&context->timer)) {
 		ktime_t r = hrtimer_get_remaining(&context->timer);
@@ -212,7 +212,7 @@ static void lge_isa1200_vibrator_enable(struct timed_output_dev *dev, int value)
 	int ret;
 */
 
-	dev_info(dev->dev, "%s(%d)\n", __func__, value);
+	dev_dbg(dev->dev, "%s(%d)\n", __func__, value);
 /*
 	ret = mutex_lock_interruptible(&context->lock);
 	if (ret > 0) {
@@ -247,7 +247,7 @@ static ssize_t lge_isa1200_vibrator_amp_show(struct device *dev, struct device_a
 	struct timed_output_dev *dev_ =(struct timed_output_dev *)dev_get_drvdata(dev);
 	struct lge_isa1200_context *context = container_of(dev_, struct lge_isa1200_context, dev);
 
-	dev_info(dev, "%s()\n", __func__);
+	dev_dbg(dev, "%s()\n", __func__);
 
     return sprintf(buf, "%d\n", atomic_read(&(context->vibe_level)));
 }
@@ -258,12 +258,12 @@ static ssize_t lge_isa1200_vibrator_amp_store(struct device *dev, struct device_
 	struct lge_isa1200_context *vib = container_of(dev_, struct lge_isa1200_context, dev);
     int gain;
  
-	dev_info(dev, "%s(%s)\n", __func__, buf);
+	dev_dbg(dev, "%s(%s)\n", __func__, buf);
 
     sscanf(buf, "%d", &gain);
 
     /* TODO range check */
-	dev_info(dev, "vib_gain is set by value=%d\n", gain);
+	dev_dbg(dev, "vib_gain is set by value=%d\n", gain);
 
     atomic_set(&vib->vibe_level, gain);
  
@@ -387,7 +387,7 @@ static int __devinit lge_isa1200_probe(struct i2c_client *client,
 	struct lge_isa1200_platform_data *pdata;
 	int ret = 0;
 
-	dev_info(&client->dev, "%s()\n", __func__);
+	dev_dbg(&client->dev, "%s()\n", __func__);
 
 	if (!i2c_check_functionality(client->adapter,
 			I2C_FUNC_SMBUS_BYTE_DATA)) {
@@ -491,7 +491,7 @@ static int __devexit lge_isa1200_remove(struct i2c_client *client)
 {
 	struct lge_isa1200_context *context = i2c_get_clientdata(client);
 
-	dev_info(context->dev.dev, "%s()\n", __func__);
+	dev_dbg(context->dev.dev, "%s()\n", __func__);
 
 	context_for_debugfs = NULL;
 

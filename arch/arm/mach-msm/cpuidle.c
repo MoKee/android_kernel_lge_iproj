@@ -17,8 +17,7 @@
 #include <linux/cpu_pm.h>
 
 #include <mach/cpuidle.h>
-
-#include "pm.h"
+#include <mach/pm.h>
 
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct cpuidle_device, msm_cpuidle_devs);
 static struct cpuidle_driver msm_cpuidle_driver = {
@@ -56,8 +55,6 @@ static int msm_cpuidle_enter(
 	struct atomic_notifier_head *head =
 			&__get_cpu_var(msm_cpuidle_notifiers);
 #endif
-
-	local_irq_disable();
 
 #ifdef CONFIG_MSM_SLEEP_STATS
 	atomic_notifier_call_chain(head, MSM_CPUIDLE_STATE_ENTER, NULL);

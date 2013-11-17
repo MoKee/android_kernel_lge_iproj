@@ -27,6 +27,8 @@ extern struct mdp4_statistic mdp4_stat;
 extern uint32 mdp4_extn_disp;
 extern spinlock_t dsi_clk_lock;
 extern u32 mdp_max_clk;
+extern u32 dbg_force_ov0_blt;
+extern u32 dbg_force_ov1_blt;
 
 #define MDP4_OVERLAYPROC0_BASE	0x10000
 #define MDP4_OVERLAYPROC1_BASE	0x18000
@@ -34,6 +36,7 @@ extern u32 mdp_max_clk;
 
 #define MDP4_VIDEO_BASE 0x20000
 #define MDP4_VIDEO_OFF 0x10000
+#define MDP4_VIDEO_CSC_OFF 0x4000
 
 #define MDP4_RGB_BASE 0x40000
 #define MDP4_RGB_OFF 0x10000
@@ -197,6 +200,8 @@ enum {
 	MDP4_CHROMA_420
 };
 
+#define CSC_MAX_BLOCKS 6
+
 #define MDP4_BLEND_BG_TRANSP_EN		BIT(9)
 #define MDP4_BLEND_FG_TRANSP_EN		BIT(8)
 #define MDP4_BLEND_BG_MOD_ALPHA		BIT(7)
@@ -225,6 +230,7 @@ enum {
 #define MDP4_OP_FLIP_UD		BIT(14)
 #define MDP4_OP_FLIP_LR		BIT(13)
 #define MDP4_OP_CSC_EN		BIT(11)
+#define MDP4_OP_DST_DATA_YCBCR	BIT(10)
 #define MDP4_OP_SRC_DATA_YCBCR	BIT(9)
 #define MDP4_OP_SCALEY_FIR 		(0 << 4)
 #define MDP4_OP_SCALEY_MN_PHASE 	(1 << 4)
@@ -296,6 +302,8 @@ struct mdp4_overlay_pipe {
 	uint32 src_format;
 	uint32 src_width;	/* source img width */
 	uint32 src_height;	/* source img height */
+	uint32 prev_src_width;	/* source img width */
+	uint32 prev_src_height;	/* source img height */
 	uint32 is_3d;
 	uint32 src_width_3d;	/* source img width */
 	uint32 src_height_3d;	/* source img height */
@@ -374,9 +382,9 @@ struct mdp4_overlay_pipe {
 	uint32 req_clk;
 	uint32 req_bw;
 	uint32 luma_align_size;
-	struct mdp4_hsic_regs hsic_regs;
 	struct mdp_overlay req_data;
 	struct completion comp;
+	struct mdp_overlay_pp_params pp_cfg;
 	struct completion dmas_comp;
 	struct mdp4_iommu_pipe_info iommu;
 };
@@ -465,9 +473,6 @@ void mdp4_isr_read(int);
 void mdp4_clear_lcdc(void);
 void mdp4_mixer_blend_init(int mixer_num);
 void mdp4_vg_qseed_init(int vg_num);
-void mdp4_vg_csc_setup(int vp_num);
-void mdp4_mixer_csc_setup(uint32 mixer);
-void mdp4_dmap_csc_setup(void);
 void mdp4_vg_csc_update(struct mdp_csc *p);
 irqreturn_t mdp4_isr(int irq, void *ptr);
 void mdp4_overlay_format_to_pipe(uint32 format, struct mdp4_overlay_pipe *pipe);
@@ -607,7 +612,7 @@ void mdp4_overlay_dmap_cfg(struct msm_fb_data_type *mfd, int lcdc);
 void mdp4_overlay_dmap_xy(struct mdp4_overlay_pipe *pipe);
 void mdp4_overlay_dmae_cfg(struct msm_fb_data_type *mfd, int atv);
 void mdp4_overlay_dmae_xy(struct mdp4_overlay_pipe *pipe);
-int mdp4_overlay_pipe_staged(struct mdp4_overlay_pipe *pipe);
+int mdp4_overlay_pipe_staged(int mixer);
 void mdp4_lcdc_primary_vsyn(void);
 void mdp4_overlay0_done_lcdc(int cndx);
 void mdp4_overlay0_done_mddi(struct mdp_dma_data *dma);
@@ -773,6 +778,7 @@ void mdp4_primary_vsync_dsi_video(void);
 void mdp4_dsi_cmd_base_swap(int cndx, struct mdp4_overlay_pipe *pipe);
 void mdp4_dsi_cmd_wait4vsync(int cndx);
 void mdp4_dsi_video_wait4vsync(int cndx);
+void mdp4_mixer_reset(int mixer);
 void mdp4_dsi_cmd_pipe_queue(int cndx, struct mdp4_overlay_pipe *pipe);
 void mdp4_dsi_video_pipe_queue(int cndx, struct mdp4_overlay_pipe *pipe);
 int mdp4_dsi_video_pipe_commit(int cndx, int wait);
@@ -913,14 +919,14 @@ int mdp4_writeback_terminate(struct fb_info *info);
 uint32_t mdp_block2base(uint32_t block);
 int mdp_hist_lut_config(struct mdp_hist_lut_data *data);
 
-void mdp4_hsic_set(struct mdp4_overlay_pipe *pipe, struct dpp_ctrl *ctrl);
 void mdp4_hsic_update(struct mdp4_overlay_pipe *pipe);
 int mdp4_csc_config(struct mdp_csc_cfg_data *config);
 void mdp4_csc_write(struct mdp_csc_cfg *data, uint32_t base);
 int mdp4_csc_enable(struct mdp_csc_cfg_data *config);
 int mdp4_pcc_cfg(struct mdp_pcc_cfg_data *cfg_ptr);
 int mdp4_argc_cfg(struct mdp_pgc_lut_data *pgc_ptr);
-
+int mdp4_qseed_cfg(struct mdp_qseed_cfg_data *cfg);
+int mdp4_qseed_access_cfg(struct mdp_qseed_cfg *cfg, uint32_t base);
 u32  mdp4_allocate_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);
 void mdp4_init_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);
 void mdp4_free_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);
@@ -945,5 +951,6 @@ int mdp4_overlay_mdp_perf_req(struct msm_fb_data_type *mfd,
 			      struct mdp4_overlay_pipe *plist);
 void mdp4_overlay_mdp_perf_upd(struct msm_fb_data_type *mfd, int flag);
 int mdp4_overlay_reset(void);
+void mdp4_vg_csc_restore(void);
 
 #endif /* MDP_H */

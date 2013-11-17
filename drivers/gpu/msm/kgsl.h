@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -70,6 +70,7 @@
 	do { _stat += (_size); if (_stat > _max) _max = _stat; } while (0)
 
 struct kgsl_device;
+struct kgsl_context;
 
 struct kgsl_driver {
 	struct cdev cdev;
@@ -122,20 +123,25 @@ struct kgsl_memdesc_ops {
 	int (*map_kernel_mem)(struct kgsl_memdesc *);
 };
 
+/* Internal definitions for memdesc->priv */
 #define KGSL_MEMDESC_GUARD_PAGE BIT(0)
+/* Set if the memdesc is mapped into all pagetables */
+#define KGSL_MEMDESC_GLOBAL BIT(1)
 
 /* shared memory allocation */
 struct kgsl_memdesc {
 	struct kgsl_pagetable *pagetable;
-	void *hostptr;
+	void *hostptr; /* kernel virtual address */
+	unsigned long useraddr; /* userspace address */
 	unsigned int gpuaddr;
 	unsigned int physaddr;
 	unsigned int size;
-	unsigned int priv;
+	unsigned int priv; /* Internal flags and settings */
 	struct scatterlist *sg;
-	unsigned int sglen;
+	unsigned int sglen; /* Active entries in the sglist */
+	unsigned int sglen_alloc;  /* Allocated entries in the sglist */
 	struct kgsl_memdesc_ops *ops;
-	int flags;
+	unsigned int flags; /* Flags set from userspace */
 };
 
 /* List of different memory entry types */
@@ -158,6 +164,7 @@ struct kgsl_mem_entry {
 	int flags;
 	void *priv_data;
 	struct rb_node node;
+	unsigned int id;
 	unsigned int context_id;
 	/* back pointer to private structure under whose context this
 	* allocation is made */
@@ -179,12 +186,17 @@ struct kgsl_mem_entry *kgsl_sharedmem_find_region(
 	struct kgsl_process_private *private, unsigned int gpuaddr,
 	size_t size);
 
+void kgsl_get_memory_usage(char *str, size_t len, unsigned int memflags);
+
 int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
 	void (*cb)(struct kgsl_device *, void *, u32, u32), void *priv,
 	void *owner);
 
 void kgsl_cancel_events(struct kgsl_device *device,
 	void *owner);
+
+void kgsl_cancel_events_ctxt(struct kgsl_device *device,
+	struct kgsl_context *context);
 
 extern const struct dev_pm_ops kgsl_pm_ops;
 

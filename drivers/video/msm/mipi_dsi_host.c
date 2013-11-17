@@ -41,7 +41,6 @@
 
 static struct completion dsi_dma_comp;
 static struct completion dsi_mdp_comp;
-static struct completion dsi_video_comp;
 static struct dsi_buf dsi_tx_buf;
 static struct dsi_buf dsi_rx_buf;
 static spinlock_t dsi_irq_lock;
@@ -96,7 +95,6 @@ void mipi_dsi_init(void)
 {
 	init_completion(&dsi_dma_comp);
 	init_completion(&dsi_mdp_comp);
-	init_completion(&dsi_video_comp);
 	mipi_dsi_buf_alloc(&dsi_tx_buf, DSI_BUF_SIZE);
 	mipi_dsi_buf_alloc(&dsi_rx_buf, DSI_BUF_SIZE);
 	spin_lock_init(&dsi_irq_lock);
@@ -934,8 +932,8 @@ void mipi_dsi_host_init(struct mipi_panel_info *pinfo)
 	MIPI_OUTP(MIPI_DSI_BASE + 0x00c8, data); /* DSI_EOT_PACKET_CTRL */
 
 
-	/* allow only ack-err-status  to generate interrupt */
-	MIPI_OUTP(MIPI_DSI_BASE + 0x0108, 0x13ff3fe0); /* DSI_ERR_INT_MASK0 */
+	/* allow only ack-err-status + fifo underrun to generate interrupt */
+	MIPI_OUTP(MIPI_DSI_BASE + 0x0108, 0x13ff37e0); /* DSI_ERR_INT_MASK0 */
 
 	intr_ctrl |= DSI_INTR_ERROR_MASK;
 	MIPI_OUTP(MIPI_DSI_BASE + 0x010c, intr_ctrl); /* DSI_INTL_CTRL */
@@ -1025,8 +1023,7 @@ void mipi_dsi_op_mode_config(int mode)
 	dsi_ctrl &= ~0x07;
 	if (mode == DSI_VIDEO_MODE) {
 		dsi_ctrl |= 0x03;
-		intr_ctrl = (DSI_INTR_CMD_DMA_DONE_MASK |
-					DSI_INTR_VIDEO_DONE_MASK);
+		intr_ctrl = DSI_INTR_CMD_DMA_DONE_MASK;
 	} else {		/* command mode */
 		dsi_ctrl |= 0x05;
 		intr_ctrl = DSI_INTR_CMD_DMA_DONE_MASK | DSI_INTR_ERROR_MASK |
@@ -1038,19 +1035,6 @@ void mipi_dsi_op_mode_config(int mode)
 	MIPI_OUTP(MIPI_DSI_BASE + 0x010c, intr_ctrl); /* DSI_INTL_CTRL */
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0000, dsi_ctrl);
 	wmb();
-}
-
-
-static void mipi_dsi_wait4video_done(void)
-{
-	unsigned long flag;
-
-	spin_lock_irqsave(&dsi_mdp_lock, flag);
-	INIT_COMPLETION(dsi_video_comp);
-	mipi_dsi_enable_irq(DSI_VIDEO_TERM);
-	spin_unlock_irqrestore(&dsi_mdp_lock, flag);
-
-	wait_for_completion(&dsi_video_comp);
 }
 
 void mipi_dsi_mdp_busy_wait(void)
@@ -1275,6 +1259,7 @@ int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
 	/* transmit read comamnd to client */
 	mipi_dsi_cmd_dma_tx(tp);
 
+	mipi_dsi_disable_irq(DSI_CMD_TERM);
 	/*
 	 * once cmd_dma_done interrupt received,
 	 * return data from client is ready and stored
@@ -1384,6 +1369,7 @@ int mipi_dsi_cmds_rx_new(struct dsi_buf *tp, struct dsi_buf *rp,
 	/* transmit read comamnd to client */
 	mipi_dsi_cmd_dma_tx(tp);
 
+	mipi_dsi_disable_irq(DSI_CMD_TERM);
 	/*
 	 * once cmd_dma_done interrupt received,
 	 * return data from client is ready and stored
@@ -1527,11 +1513,23 @@ int mipi_dsi_cmd_dma_rx(struct dsi_buf *rp, int rlen)
 	return rlen;
 }
 
-static void mipi_dsi_wait4video_eng_busy(void)
+static void mipi_dsi_wait_for_video_eng_busy(void)
 {
-	mipi_dsi_wait4video_done();
-	/* delay 4 ms to skip BLLP */
-	usleep(4000);
+	int i;
+	u32 data;
+
+	/*
+	 * if video mode engine was not busy (in BLLP)
+	 * wait to pass BLLP
+	 */
+
+	/* check for VIDEO_MODE_ENGINE_BUSY */
+	for (i = 0; i < 5; i++) {
+		data = MIPI_INP(MIPI_DSI_BASE + 0x0004);/* DSI_STATUS */
+		if (data & 0x08) /* VIDEO_MODE_ENGINE_BUSY */
+			break;
+		usleep(4000);
+	}
 }
 
 void mipi_dsi_cmd_mdp_busy(void)
@@ -1632,10 +1630,10 @@ void mipi_dsi_cmdlist_commit(int from_mdp)
 
 	dsi_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x0000);
 	if (dsi_ctrl & 0x02) {
-		/* video mode, make sure video engine is busy
-		 * so dcs command will be sent at start of BLLP
+		/* video mode, make sure dsi_cmd_mdp is busy
+		 * so dcs command will be txed at start of BLLP
 		 */
-		mipi_dsi_wait4video_eng_busy();
+		mipi_dsi_wait_for_video_eng_busy();
 	} else {
 		/* command mode */
 		if (!from_mdp) { /* cmdlist_put */
@@ -1745,7 +1743,9 @@ void mipi_dsi_fifo_status(void)
 
 	if (status & 0x44444489) {
 		MIPI_OUTP(MIPI_DSI_BASE + 0x0008, status);
-		pr_debug("%s: status=%x\n", __func__, status);
+		pr_err("%s: Error: status=%x\n", __func__, status);
+		mipi_dsi_sw_reset();
+		mdp4_mixer_reset(0);
 	}
 }
 
@@ -1786,14 +1786,19 @@ irqreturn_t mipi_dsi_isr(int irq, void *ptr)
 #endif
 	if (isr & DSI_INTR_ERROR) {
 		mipi_dsi_mdp_stat_inc(STAT_DSI_ERROR);
+		spin_lock(&dsi_mdp_lock);
+		dsi_ctrl_lock = FALSE;
+		dsi_mdp_busy = FALSE;
+		mipi_dsi_disable_irq_nosync(DSI_MDP_TERM);
 		mipi_dsi_error();
+		complete(&dsi_mdp_comp);
+		spin_unlock(&dsi_mdp_lock);
 	}
 
 	if (isr & DSI_INTR_VIDEO_DONE) {
-		spin_lock(&dsi_mdp_lock);
-		mipi_dsi_disable_irq_nosync(DSI_VIDEO_TERM);
-		complete(&dsi_video_comp);
-		spin_unlock(&dsi_mdp_lock);
+		/*
+		* do something  here
+		*/
 	}
 
 	if (isr & DSI_INTR_CMD_DMA_DONE) {

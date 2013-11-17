@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -684,6 +684,9 @@ void res_trk_init(struct device *device, u32 irq)
 			resource_context.vidc_platform_data->disable_dmx;
 			resource_context.disable_fullhd =
 			resource_context.vidc_platform_data->disable_fullhd;
+			resource_context.enable_sec_metadata =
+			resource_context.vidc_platform_data->
+				enable_sec_metadata;
 #ifdef CONFIG_MSM_BUS_SCALING
 			resource_context.vidc_bus_client_pdata =
 			resource_context.vidc_platform_data->
@@ -825,6 +828,10 @@ u32 res_trk_get_disable_fullhd(void)
 {
 	return resource_context.disable_fullhd;
 }
+u32 res_trk_get_enable_sec_metadata(void)
+{
+	return resource_context.enable_sec_metadata;
+}
 
 int res_trk_enable_iommu_clocks(void)
 {
@@ -956,4 +963,18 @@ u32 get_res_trk_perf_level(enum vcd_perf_level perf_level)
 		res_trk_perf_level = -EINVAL;
 	}
 	return res_trk_perf_level;
+}
+
+u32 res_trk_estimate_perf_level(u32 pn_perf_lvl)
+{
+	VCDRES_MSG_MED("%s(), req_perf_lvl = %d", __func__, pn_perf_lvl);
+	if ((pn_perf_lvl >= RESTRK_1080P_VGA_PERF_LEVEL) &&
+		(pn_perf_lvl < RESTRK_1080P_720P_PERF_LEVEL)) {
+		return RESTRK_1080P_720P_PERF_LEVEL;
+	} else if ((pn_perf_lvl >= RESTRK_1080P_720P_PERF_LEVEL) &&
+			(pn_perf_lvl < RESTRK_1080P_MAX_PERF_LEVEL)) {
+		return RESTRK_1080P_MAX_PERF_LEVEL;
+	} else {
+		return pn_perf_lvl;
+	}
 }

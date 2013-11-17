@@ -2452,6 +2452,7 @@ struct msm_vidc_platform_data vidc_platform_data = {
 	.enable_ion = 0,
 #endif
 	.disable_dmx = 0,
+	.enable_sec_metadata = 0,
 	.disable_fullhd = 0
 };
 

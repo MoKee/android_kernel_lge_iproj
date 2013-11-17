@@ -86,7 +86,7 @@
 #include "devices.h"
 #include "devices_i_atnt.h"
 #include <mach/cpuidle.h>
-#include "pm.h"
+#include <mach/pm.h>
 #include "mpm.h"
 #include "spm.h"
 #include "rpm_log.h"
