@@ -318,7 +318,7 @@ static int mipi_dsi_panel_power(int on)
 }
 #endif
 struct mipi_dsi_platform_data mipi_dsi_pdata = {
-    //.vsync_gpio = MDP_VSYNC_GPIO,
+//    .vsync_gpio = MDP_VSYNC_GPIO,
 	.dsi_power_save   = mipi_dsi_panel_power,
 };
 
@@ -371,7 +371,7 @@ static struct platform_device *panel_devices[] __initdata = {
 
 #ifdef CONFIG_FB_MSM_MIPI_DSI
 
-/* jaeseong.gim@lge.com. 2011-01-16 */
+/*                                  */
 #ifdef CONFIG_LGE_DISPLAY_MIPI_LGIT_VIDEO_HD_PT
 	&mipi_dsi_lgit_panel_device,
 #else
@@ -387,7 +387,7 @@ static struct platform_device *panel_devices[] __initdata = {
 void __init msm_panel_init(void){
 	platform_add_devices(panel_devices, ARRAY_SIZE(panel_devices));
 }
-//start, linear mode, shoogi.lee@lge.com, 2011_04_20
+//                                                  
 struct backlight_platform_data {
    void (*platform_init)(void);
    int gpio;
@@ -504,7 +504,7 @@ static int hdmi_enable_5v(int on)
 		pr_info("%s(off): success\n", __func__);
 	}
 	prev_on = on;
-#endif //CONFIG_MACH_LGE_I_BOARD
+#endif //                       
 	return 0;
 }
 
@@ -512,7 +512,7 @@ static int hdmi_core_power(int on, int show)
 {
 #ifndef CONFIG_MACH_LGE_I_BOARD
 	static struct regulator *reg_8058_l16;		/* VDD_HDMI */
-#endif //CONFIG_MACH_LGE_I_BOARD
+#endif //                       
 	static int prev_on;
 	int rc;
 
@@ -522,7 +522,7 @@ static int hdmi_core_power(int on, int show)
 #ifndef CONFIG_MACH_LGE_I_BOARD
 	if (!reg_8058_l16)
 		_GET_REGULATOR(reg_8058_l16, "8058_l16");
-#endif //CONFIG_MACH_LGE_I_BOARD
+#endif //                       
 
 	if (on) {
 #ifndef CONFIG_MACH_LGE_I_BOARD
@@ -534,7 +534,7 @@ static int hdmi_core_power(int on, int show)
 				"8058_l16", rc);
 			return rc;
 		}
-#endif //CONFIG_MACH_LGE_I_BOARD
+#endif //                       
 		rc = gpio_request(170, "HDMI_DDC_CLK");
 		if (rc) {
 			pr_err("'%s'(%d) gpio_request failed, rc=%d\n",
@@ -564,7 +564,7 @@ static int hdmi_core_power(int on, int show)
 		if (rc)
 			pr_warning("'%s' regulator disable failed, rc=%d\n",
 				"8058_l16", rc);
-#endif //CONFIG_MACH_LGE_I_BOARD
+#endif //                       
 		pr_info("%s(off): success\n", __func__);
 	}
 
@@ -579,7 +579,7 @@ error2:
 error1:
 #ifndef CONFIG_MACH_LGE_I_BOARD	
 	regulator_disable(reg_8058_l16);
-#endif //CONFIG_MACH_LGE_I_BOARD
+#endif //                       
 	return rc;
 }
 
@@ -627,7 +627,7 @@ static int hdmi_cec_power(int on)
 error:
 	regulator_disable(reg_8901_l3);
 	return rc;
-#endif //CONFIG_MACH_LGE_I_BOARD
+#endif //                       
 
 	return 0;
 }
@@ -791,8 +791,8 @@ static struct msm_bus_vectors mdp_sd_ebi_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
-        .ab = 334080000,
-        .ib = 417600000 * 2,
+		.ab = 334080000,
+		.ib = 417600000 * 2,
 	},
 };
 static struct msm_bus_vectors mdp_vga_vectors[] = {
@@ -917,22 +917,22 @@ static struct msm_bus_vectors dtv_bus_def_vectors[] = {
 };
 
 static struct msm_bus_vectors dtv_bus_hdmi_prim_vectors[] = {
-        /* For now, 0th array entry is reserved.
-         * Please leave 0 as is and don't use it
-         */
-        {
-                .src = MSM_BUS_MASTER_MDP_PORT0,
-                .dst = MSM_BUS_SLAVE_SMI,
-                .ab = 2000000000,
-                .ib = 2000000000,
-        },
-        /* Master and slaves can be from different fabrics */
-        {
-                .src = MSM_BUS_MASTER_MDP_PORT0,
-                .dst = MSM_BUS_SLAVE_EBI_CH0,
-                .ab = 2000000000,
-                .ib = 2000000000,
-        },
+	/* For now, 0th array entry is reserved.
+	 * Please leave 0 as is and don't use it
+	 */
+	{
+		.src = MSM_BUS_MASTER_MDP_PORT0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab = 2000000000,
+		.ib = 2000000000,
+	},
+	/* Master and slaves can be from different fabrics */
+	{
+		.src = MSM_BUS_MASTER_MDP_PORT0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 2000000000,
+		.ib = 2000000000,
+	},
 };
 
 static struct msm_bus_paths dtv_bus_scale_usecases[] = {
@@ -957,28 +957,29 @@ static struct lcdc_platform_data dtv_pdata = {
 };
 
 static struct msm_bus_paths dtv_hdmi_prim_bus_scale_usecases[] = {
-        {
-                ARRAY_SIZE(dtv_bus_init_vectors),
-                dtv_bus_init_vectors,
-        },
-        {
-                ARRAY_SIZE(dtv_bus_hdmi_prim_vectors),
-                dtv_bus_hdmi_prim_vectors,
-        },
+	{
+		ARRAY_SIZE(dtv_bus_init_vectors),
+		dtv_bus_init_vectors,
+	},
+	{
+		ARRAY_SIZE(dtv_bus_hdmi_prim_vectors),
+		dtv_bus_hdmi_prim_vectors,
+	},
 };
 
 static struct msm_bus_scale_pdata dtv_hdmi_prim_bus_scale_pdata = {
-        dtv_hdmi_prim_bus_scale_usecases,
-        ARRAY_SIZE(dtv_hdmi_prim_bus_scale_usecases),
-        .name = "dtv",
+	dtv_hdmi_prim_bus_scale_usecases,
+	ARRAY_SIZE(dtv_hdmi_prim_bus_scale_usecases),
+	.name = "dtv",
 };
 
 static struct lcdc_platform_data dtv_hdmi_prim_pdata = {
-        .bus_scale_table = &dtv_hdmi_prim_bus_scale_pdata,
+	.bus_scale_table = &dtv_hdmi_prim_bus_scale_pdata,
 };
 #endif
 
 
+#if 0 /*                                                                              */
 #ifdef CONFIG_FB_MSM_MIPI_DSI
 int mdp_core_clk_rate_table[] = {
 	200000000,
@@ -1005,11 +1006,27 @@ static struct msm_panel_common_pdata mdp_pdata = {
 #endif
 	.mdp_rev = MDP_REV_41,
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-	.mem_hid = BIT(ION_CP_WB_HEAP_ID),
+	.mem_hid = ION_CP_WB_HEAP_ID,
 #else
 	.mem_hid = MEMTYPE_EBI1,
 #endif
 };
+#else /* JB codes ==================================================================== */
+static struct msm_panel_common_pdata mdp_pdata = {
+	//.gpio = MDP_VSYNC_GPIO,
+	.mdp_max_clk = 200000000,
+#ifdef CONFIG_MSM_BUS_SCALING
+	.mdp_bus_scale_table = &mdp_bus_scale_pdata,
+#endif
+	.mdp_rev = MDP_REV_41,
+#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
+	.mem_hid = BIT(ION_CP_WB_HEAP_ID),
+#else
+	.mem_hid = MEMTYPE_EBI1,
+#endif
+	.mdp_iommu_split_domain = 0,
+};
+#endif /* ============================================================================ */
 
 void __init msm8x60_mdp_writeback(struct memtype_reserve* reserve_table)
 {
@@ -1029,10 +1046,10 @@ void __init msm_fb_add_devices(void)
 
 	msm_fb_register_device("mipi_dsi", &mipi_dsi_pdata);
 #ifdef CONFIG_MSM_BUS_SCALING
-        if (hdmi_is_primary)
-                msm_fb_register_device("dtv", &dtv_hdmi_prim_pdata);
-        else
-                msm_fb_register_device("dtv", &dtv_pdata);
+	if (hdmi_is_primary)
+		msm_fb_register_device("dtv", &dtv_hdmi_prim_pdata);
+	else
+		msm_fb_register_device("dtv", &dtv_pdata);
 #endif
 }
 
