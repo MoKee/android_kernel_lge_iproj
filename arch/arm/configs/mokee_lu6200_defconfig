@@ -1,6 +1,4 @@
-
-<!-- saved from url=(0134)https://raw.github.com/thebigq/lge-kernel-iproj/7fed10387a97ea1352c6937724c2da1e266f059a/arch/arm/configs/cyanogenmod_lu6200_defconfig -->
-<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><style>#haloword-pron { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -94px -34px; }#haloword-pron:hover { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -111px -34px; }#haloword-open { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -94px -17px; }#haloword-open:hover { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -111px -17px; }#haloword-close { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -94px 0; }#haloword-close:hover { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -111px 0; }#haloword-add { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -94px -51px; }#haloword-add:hover { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -111px -51px; }#haloword-remove { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -94px -68px; }#haloword-remove:hover { background: url(chrome-extension://bhkcehpnnlgncpnefpanachijmhikocj/img/icon.svg) -111px -68px; }</style></head><body><pre style="word-wrap: break-word; white-space: pre-wrap;">#
+#
 # Automatically generated make config: don't edit
 # Linux/arm 3.0.31 Kernel Configuration
 #
@@ -264,7 +262,7 @@ CONFIG_IRQ_WORK=y
 CONFIG_EXPERIMENTAL=y
 CONFIG_INIT_ENV_ARG_LIMIT=32
 CONFIG_CROSS_COMPILE=""
-CONFIG_LOCALVERSION="-cyanogenmod"
+CONFIG_LOCALVERSION="-mokee"
 # CONFIG_LOCALVERSION_AUTO is not set
 CONFIG_HAVE_KERNEL_GZIP=y
 CONFIG_HAVE_KERNEL_LZMA=y
@@ -3417,4 +3415,3 @@ CONFIG_HAS_DMA=y
 CONFIG_CPU_RMAP=y
 CONFIG_NLATTR=y
 # CONFIG_AVERAGE is not set
-</pre><div id="haloword-lookup" class="ui-widget-content ui-draggable"><div id="haloword-title"><span id="haloword-word"></span><a herf="#" id="haloword-pron" class="haloword-button" title="发音"></a><audio id="haloword-audio"></audio><div id="haloword-control-container"><a herf="#" id="haloword-add" class="haloword-button" title="加入单词表"></a><a herf="#" id="haloword-remove" class="haloword-button" title="移出单词表"></a><a href="https://raw.github.com/thebigq/lge-kernel-iproj/7fed10387a97ea1352c6937724c2da1e266f059a/arch/arm/configs/cyanogenmod_lu6200_defconfig#" id="haloword-open" class="haloword-button" title="查看单词详细释义" target="_blank"></a><a herf="#" id="haloword-close" class="haloword-button" title="关闭查询窗"></a></div><br style="clear: both;"></div><div id="haloword-content"></div></div></body></html>
